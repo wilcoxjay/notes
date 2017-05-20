@@ -36,7 +36,21 @@ Definition filterMap {A B} (f : A -> option B) : list A -> list B :=
                end
     end.
 
-Notation "x |> f" := (f x) (left associativity, at level 98, only parsing) .
+Fixpoint list_option_traverse {A} (l : list (option A)) : option (list A) :=
+  match l with
+  | [] => Some []
+  | x :: l =>
+    match x with
+    | None => None
+    | Some a =>
+      match list_option_traverse l with
+      | None => None
+      | Some l => Some (a :: l)
+      end
+    end
+  end.
+
+Notation "x |> f" := (f x) (left associativity, at level 69, only parsing) .
 
 
 (* A type representing valid right-hand sides of left-regular grammar rules.
@@ -133,8 +147,8 @@ Module reg_grammar.
 
   Lemma parse'_app :
     forall g l1 l2 acc,
-      parse' g (l1 ++ l2) acc =
-      parse' g l2 (parse' g l1 acc).
+      acc |> parse' g (l1 ++ l2) =
+      acc |> parse' g l1 |> parse' g l2.
   Proof.
     induction l1; simpl; auto.
   Qed.
@@ -155,6 +169,35 @@ Module reg_grammar.
     [Some (start_symbol grammar)]
         |> parse' (rules grammar) l
         |> is_final (rules grammar).
+
+  Definition rhs_from_lose (l : list (NT + T)) : option (rhs.t T NT) :=
+    match l with
+    | [] => Some Empty
+    | [inr t] => Some (Single t)
+    | [inr t; inl A] => Some (Continue t A)
+    | _ => None
+    end.
+
+  Definition rule_from_loose (l : list (NT + T)) : option (NT * rhs.t T NT) :=
+    match l with
+    | inl A :: rhs =>
+      match rhs_from_lose rhs with
+      | None => None
+      | Some rhs => Some (A, rhs)
+      end
+    | _ => None
+    end.
+
+  Definition rules_from_loose (l : list (list (NT + T))) : option (list (NT * rhs.t T NT)) :=
+    l |> map rule_from_loose
+      |> list_option_traverse.
+
+  Definition from_loose (start : NT) (l : list (list (NT + T))) : option t :=
+    match rules_from_loose l with
+    | None => None
+    | Some rs => Some {| start_symbol := start;
+                        rules := rs |}
+    end.
   End reg_grammar.
 End reg_grammar.
 
@@ -459,4 +502,18 @@ Module a_b_example.
   Eval compute in dfa.run a_b_dfa' [terminal.b; terminal.b].
   Eval compute in dfa.run a_b_dfa' [terminal.a; terminal.b].
   Eval compute in dfa.run a_b_dfa' [terminal.b; terminal.a].
+
+
+  (* The same (corrected) grammar, represented in the loose format used in the
+     original email. *)
+  Definition a_b_loose_rules: list(list(non_terminal.t + terminal.t)) :=
+    [[inl non_terminal.A; inr terminal.a; inl non_terminal.A];
+     [inl non_terminal.A; inr terminal.b; inl non_terminal.B];
+     [inl non_terminal.A];
+     [inl non_terminal.B; inr terminal.b; inl non_terminal.B];
+     [inl non_terminal.B]].
+
+  (* We can see that it gets converted to the "tight" representation given
+     above. *)
+  Eval compute in reg_grammar.from_loose non_terminal.A a_b_loose_rules.
 End a_b_example.
