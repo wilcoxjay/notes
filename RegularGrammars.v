@@ -131,6 +131,14 @@ Module reg_grammar.
     induction l; simpl; auto.
   Qed.
 
+  Lemma parse'_app :
+    forall g l1 l2 acc,
+      parse' g (l1 ++ l2) acc =
+      parse' g l2 (parse' g l1 acc).
+  Proof.
+    induction l1; simpl; auto.
+  Qed.
+
   (* Checks to see if the current state represents an accepting state.  In this
      representataion of state, a state is accepting if it contains [None] or if
      it contains [Some nt] and there is a rule [(nt, Empty)].  *)
@@ -358,12 +366,45 @@ Module a_b_example.
     - discriminate.
   Qed.
 
+  Lemma a_b_grammar_parse'_AA_complete :
+    forall n,
+      reg_grammar.parse' a_b_rules (repeat terminal.a n) [Some non_terminal.A] =
+      [Some non_terminal.A].
+  Proof.
+    induction n; simpl; auto.
+  Qed.
+
+  Lemma a_b_grammar_parse'_BB_complete :
+    forall n,
+      reg_grammar.parse' a_b_rules (repeat terminal.b n) [Some non_terminal.B] =
+      [Some non_terminal.B].
+  Proof.
+    induction n; simpl; auto.
+  Qed.
+
+  Lemma a_b_grammar_parse'_AB_complete :
+    forall n,
+      reg_grammar.parse' a_b_rules (repeat terminal.b n) [Some non_terminal.A] =
+      match n with
+      | 0 => [Some non_terminal.A]
+      | S _ => [Some non_terminal.B]
+      end.
+  Proof.
+    destruct n; simpl; auto using a_b_grammar_parse'_BB_complete.
+  Qed.
+
   Lemma a_b_grammar_complete :
     forall l,
       a_b_spec l ->
       reg_grammar.parse a_b_grammar l = true.
-  Admitted.
-
+  Proof.
+    unfold reg_grammar.parse.
+    cbn.
+    intros l (n1 & n2 & H). subst l.
+    rewrite reg_grammar.parse'_app, a_b_grammar_parse'_AA_complete,
+            a_b_grammar_parse'_AB_complete.
+    destruct n2; reflexivity.
+  Qed.
 
   (* A hand rolled DFA for the same language. *)
   Definition a_b_next (s : option non_terminal.t) (t : terminal.t) : option non_terminal.t :=
