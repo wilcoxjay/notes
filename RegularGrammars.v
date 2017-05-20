@@ -195,6 +195,13 @@ Module powerset_construction.
       reg_grammar.step (reg_grammar.rules g) t (filterMap id s).
 
     Definition dfa := dfa.DFA init is_final next.
+
+    (* Because of the way we carefully set this up, simulation holds
+       *definitionally*, which is pretty cool. *)
+    Theorem simulation : forall l, dfa.run dfa l = reg_grammar.parse g l.
+    Proof.
+      reflexivity.
+    Qed.
   End powerset_construction.
 End powerset_construction.
 
