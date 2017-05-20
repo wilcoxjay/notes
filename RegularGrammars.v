@@ -106,13 +106,17 @@ Module reg_grammar.
             |> rec l
       end.
 
+  Definition is_final (rules : list (NT * rhs.t T NT)) (l : list (option NT)) : bool :=
+    existsb (fun o => match o with
+                   | None => true
+                   | Some nt => getRHS nt rules |> existsb rhs.isEmpty
+                   end)
+            l.
+
   Definition parse (grammar : reg_grammar.t) (l : list T):=
     [Some (start_symbol grammar)]
         |> parse' (rules grammar) l
-        |> existsb (fun o => match o with
-                          | None => true
-                          | Some nt => getRHS nt (rules grammar) |> existsb rhs.isEmpty
-                          end).
+        |> is_final (rules grammar).
   End reg_grammar.
 End reg_grammar.
 
@@ -133,6 +137,27 @@ Module dfa.
 
   End dfa.
 End dfa.
+
+Module powerset_construction.
+  Section powerset_construction.
+    Variable T NT : Type.
+    Context `{EqDec T eq} `{EqDec NT eq}.
+
+    Variable g : reg_grammar.t T NT.
+
+    Definition state : Type := list (option NT).
+
+    Definition init : state := [Some (reg_grammar.start_symbol g)].
+
+    Definition is_final (s : state) : bool :=
+      reg_grammar.is_final (reg_grammar.rules g) s.
+
+    Definition next (s : state) (t : T) : state :=
+      reg_grammar.step (reg_grammar.rules g) t (filterMap id s).
+
+    Definition dfa := dfa.DFA init is_final next.
+  End powerset_construction.
+End powerset_construction.
 
 Module a_b_example.
   Module non_terminal.
