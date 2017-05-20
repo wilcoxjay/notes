@@ -124,6 +124,13 @@ Module reg_grammar.
             |> rec l
       end.
 
+  Lemma parse'_nil :
+    forall g l ,
+      reg_grammar.parse' g l [] = [].
+  Proof.
+    induction l; simpl; auto.
+  Qed.
+
   (* Checks to see if the current state represents an accepting state.  In this
      representataion of state, a state is accepting if it contains [None] or if
      it contains [Some nt] and there is a rule [(nt, Empty)].  *)
@@ -237,6 +244,125 @@ Module a_b_example.
   Eval compute in reg_grammar.parse a_b_grammar [terminal.b; terminal.b].
   Eval compute in reg_grammar.parse a_b_grammar [terminal.a; terminal.b].
   Eval compute in reg_grammar.parse a_b_grammar [terminal.b; terminal.a].
+
+
+  Definition a_b_spec (l : list terminal.t) : Prop :=
+    exists n1 n2,
+      l = repeat terminal.a n1 ++ repeat terminal.b n2.
+
+  Lemma a_b_grammar_step_B :
+    forall a,
+      a = terminal.a /\ reg_grammar.step a_b_rules a [non_terminal.B] = [] \/
+                       a = terminal.b /\ reg_grammar.step a_b_rules a [non_terminal.B] = [Some non_terminal.B].
+  Proof.
+    destruct a; intuition.
+  Qed.
+
+  Lemma a_b_grammar_step_A :
+    forall a,
+      a = terminal.a /\ reg_grammar.step a_b_rules a [non_terminal.A] = [Some non_terminal.A] \/
+                       a = terminal.b /\ reg_grammar.step a_b_rules a [non_terminal.A] = [Some non_terminal.B].
+  Proof.
+    destruct a; intuition.
+  Qed.
+
+  Lemma a_b_grammar_parse'_B :
+    forall l ,
+      reg_grammar.parse' a_b_rules l [Some non_terminal.B] = [Some non_terminal.B] \/
+      reg_grammar.parse' a_b_rules l [Some non_terminal.B] = [].
+  Proof.
+    induction l; simpl.
+    - intuition.
+    - destruct (a_b_grammar_step_B a) as [[Ha Hstep]|[Ha Hstep]]; subst a; rewrite Hstep.
+      + rewrite reg_grammar.parse'_nil. auto.
+      + auto.
+  Qed.
+
+  Lemma a_b_grammar_parse'_A :
+    forall l ,
+      reg_grammar.parse' a_b_rules l [Some non_terminal.A] = [Some non_terminal.A] \/
+      reg_grammar.parse' a_b_rules l [Some non_terminal.A] = [Some non_terminal.B] \/
+      reg_grammar.parse' a_b_rules l [Some non_terminal.A] = [].
+  Proof.
+    induction l; simpl.
+    - intuition.
+    - destruct (a_b_grammar_step_A a) as [[Ha Hstep]|[Ha Hstep]]; subst a; rewrite Hstep.
+      + auto.
+      + destruct (a_b_grammar_parse'_B l) as [H|H]; rewrite H; auto.
+  Qed.
+
+  Lemma a_b_grammar_parse'_BB_sound :
+    forall l ,
+      reg_grammar.parse' a_b_rules l [Some non_terminal.B] = [Some non_terminal.B] ->
+      exists n, l = repeat terminal.b n.
+  Proof.
+    induction l; simpl; intros.
+    - exists 0. auto.
+    - destruct (a_b_grammar_step_B a) as [[? Hstep]|[? Hstep]]; subst a;
+        rewrite Hstep in *.
+      + rewrite reg_grammar.parse'_nil in H. discriminate.
+      + apply IHl in H.
+        destruct H as [n H].
+        exists (S n).
+        simpl. congruence.
+  Qed.
+
+  Lemma a_b_grammar_parse'_AA_sound :
+    forall l ,
+      reg_grammar.parse' a_b_rules l [Some non_terminal.A] = [Some non_terminal.A] ->
+      exists n, l = repeat terminal.a n.
+  Proof.
+    induction l; simpl; intros.
+    - exists 0. auto.
+    - destruct (a_b_grammar_step_A a) as [[? Hstep]|[? Hstep]]; subst a;
+        rewrite Hstep in *.
+      + apply IHl in H.
+        destruct H as [n H].
+        exists (S n).
+        simpl. congruence.
+      + destruct (a_b_grammar_parse'_B l) as [Hp|Hp]; rewrite Hp in H; discriminate.
+  Qed.
+
+  Lemma a_b_grammar_parse'_AB_sound :
+    forall l ,
+      reg_grammar.parse' a_b_rules l [Some non_terminal.A] = [Some non_terminal.B] ->
+      a_b_spec l.
+  Proof.
+    induction l; simpl; intros.
+    - exists 0, 0. auto.
+    - destruct (a_b_grammar_step_A a) as [[? Hstep]|[? Hstep]]; subst a;
+        rewrite Hstep in *.
+      + apply IHl in H.
+        destruct H as (n1 & n2 & H).
+        exists (S n1), n2.
+        simpl. congruence.
+      + apply a_b_grammar_parse'_BB_sound in H.
+        destruct H as [n H].
+        exists 0, (S n). simpl. congruence.
+  Qed.
+
+  Lemma a_b_grammar_sound :
+    forall l,
+      reg_grammar.parse a_b_grammar l = true ->
+      a_b_spec l.
+  Proof.
+    unfold reg_grammar.parse.
+    cbn.
+    intros l.
+    destruct (a_b_grammar_parse'_A l) as [H|[H|H]]; rewrite H; intros E.
+    - apply a_b_grammar_parse'_AA_sound in H.
+      destruct H as [n H].
+      exists n, 0.
+      simpl. rewrite app_nil_r. auto.
+    - auto using a_b_grammar_parse'_AB_sound.
+    - discriminate.
+  Qed.
+
+  Lemma a_b_grammar_complete :
+    forall l,
+      a_b_spec l ->
+      reg_grammar.parse a_b_grammar l = true.
+  Admitted.
 
 
   (* A hand rolled DFA for the same language. *)
