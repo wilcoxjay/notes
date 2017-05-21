@@ -170,7 +170,7 @@ Module reg_grammar.
         |> parse' (rules grammar) l
         |> is_final (rules grammar).
 
-  Definition rhs_from_lose (l : list (NT + T)) : option (rhs.t T NT) :=
+  Definition rhs_from_loose (l : list (NT + T)) : option (rhs.t T NT) :=
     match l with
     | [] => Some Empty
     | [inr t] => Some (Single t)
@@ -181,7 +181,7 @@ Module reg_grammar.
   Definition rule_from_loose (l : list (NT + T)) : option (NT * rhs.t T NT) :=
     match l with
     | inl A :: rhs =>
-      match rhs_from_lose rhs with
+      match rhs_from_loose rhs with
       | None => None
       | Some rhs => Some (A, rhs)
       end
@@ -212,6 +212,13 @@ Module dfa.
 
     Definition run' (step: S -> A -> S) (l : list A) (acc : S) : S :=
       fold_left step l acc.
+
+    Lemma run'_app : forall f l1 l2 acc,
+        acc |> run' f (l1 ++ l2) =
+        acc |> run' f l1 |> run' f l2.
+    Proof.
+      induction l1; simpl; auto.
+    Qed.
 
     Definition run (m : t) (l : list A) : bool :=
       is_final m (run' (next m) l (initial_state m)).
@@ -311,7 +318,7 @@ Module a_b_example.
   Lemma a_b_grammar_step_B :
     forall a,
       a = terminal.a /\ reg_grammar.step a_b_rules a [non_terminal.B] = [] \/
-                       a = terminal.b /\ reg_grammar.step a_b_rules a [non_terminal.B] = [Some non_terminal.B].
+      a = terminal.b /\ reg_grammar.step a_b_rules a [non_terminal.B] = [Some non_terminal.B].
   Proof.
     destruct a; intuition.
   Qed.
@@ -319,7 +326,7 @@ Module a_b_example.
   Lemma a_b_grammar_step_A :
     forall a,
       a = terminal.a /\ reg_grammar.step a_b_rules a [non_terminal.A] = [Some non_terminal.A] \/
-                       a = terminal.b /\ reg_grammar.step a_b_rules a [non_terminal.A] = [Some non_terminal.B].
+      a = terminal.b /\ reg_grammar.step a_b_rules a [non_terminal.A] = [Some non_terminal.B].
   Proof.
     destruct a; intuition.
   Qed.
@@ -483,6 +490,90 @@ Module a_b_example.
        dfa.is_final := a_b_is_final;
        dfa.next := a_b_next
     |}.
+
+  Lemma a_b_dfa_run'_None :
+    forall l,
+      dfa.run' a_b_next l None = None.
+  Proof.
+    induction l; simpl; auto.
+  Qed.
+
+
+  Lemma a_b_dfa_run'_B :
+    forall l s',
+      dfa.run' a_b_next l (Some non_terminal.B) = Some s' ->
+      exists n, l = List.repeat terminal.b n.
+  Proof.
+    induction l; simpl; intros.
+    - exists 0. auto.
+    - destruct a.
+      + rewrite a_b_dfa_run'_None in *. discriminate.
+      + apply IHl in H. destruct H as [n H]. subst. exists (S n). auto.
+  Qed.
+
+
+  Lemma a_b_dfa_run'_A :
+    forall l s',
+      dfa.run' a_b_next l (Some non_terminal.A) = Some s' ->
+      a_b_spec l.
+  Proof.
+    induction l; simpl; intros.
+    - exists 0, 0. auto.
+    - destruct a.
+      + apply IHl in H. destruct H as (n1 & n2 & H). subst. exists (S n1), n2. auto.
+      + apply a_b_dfa_run'_B in H. destruct H as [n H]. subst. exists 0, (S n). auto.
+  Qed.
+
+  Lemma a_b_dfa_sound :
+    forall l,
+      dfa.run a_b_dfa l = true ->
+      a_b_spec l.
+  Proof.
+    unfold dfa.run.
+    cbn.
+    intros.
+    destruct (dfa.run' _ _ _) eqn:?; try discriminate.
+    eauto using a_b_dfa_run'_A.
+  Qed.
+
+  Lemma a_b_dfa_run'_AA_complete :
+    forall n,
+      dfa.run' a_b_next (repeat terminal.a n) (Some non_terminal.A) = Some non_terminal.A.
+  Proof.
+    induction n; simpl; auto.
+  Qed.
+
+  Lemma a_b_dfa_run'_BB_complete :
+    forall n,
+      dfa.run' a_b_next (repeat terminal.b n) (Some non_terminal.B) = Some non_terminal.B.
+  Proof.
+    induction n; simpl; auto.
+  Qed.
+
+  Lemma a_b_dfa_run'_AB_complete :
+    forall n,
+      dfa.run' a_b_next (repeat terminal.b n) (Some non_terminal.A) =
+      match n with
+      | 0 => Some non_terminal.A
+      | S _ => Some non_terminal.B
+      end.
+  Proof.
+    destruct n; simpl; auto using a_b_dfa_run'_BB_complete.
+  Qed.
+
+  Lemma a_b_dfa_complete :
+    forall l,
+      a_b_spec l ->
+      dfa.run a_b_dfa l = true.
+  Proof.
+    unfold dfa.run, a_b_spec.
+    cbn.
+    intros l (n1 & n2 & ?). subst.
+    rewrite dfa.run'_app.
+    rewrite a_b_dfa_run'_AA_complete.
+    rewrite a_b_dfa_run'_AB_complete.
+    destruct n2; auto.
+  Qed.
 
   (* Examples running the DFA. *)
   Eval compute in dfa.run a_b_dfa [].
