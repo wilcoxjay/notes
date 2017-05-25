@@ -607,4 +607,13 @@ Module a_b_example.
   (* We can see that it gets converted to the "tight" representation given
      above. *)
   Eval compute in reg_grammar.from_loose non_terminal.A a_b_loose_rules.
+
+  Ltac grab_option x :=
+    let x' := eval compute in x in
+    match x' with
+    | Some ?v => exact v
+    end.
+
+  Definition a_b_from_loose :=
+    ltac:(grab_option (reg_grammar.from_loose non_terminal.A a_b_loose_rules)).
 End a_b_example.
