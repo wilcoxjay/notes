@@ -50,7 +50,14 @@ def enumerate_patches(parcels, min_area):
         # area bound, we stop expanding.  "Stop expanding" here means
         # "don't put anything back on the worklist".
         if patch.area >= min_area:
-            yield patch
+            # That said, it is possible to reach this point with a
+            # non-minimal patch.  For example, we could have added a
+            # small parcel early on, that actually isn't necessary.
+            # So we double check minimality here.
+            if patch.is_minimal(min_area):
+                yield patch
+
+            # But in either case, we know we don't have to keep expanding.
             continue
 
         # Consider all possible one-step expansions of current patch.
@@ -158,6 +165,12 @@ class Patch(object):
                         if q not in self.parcels:
                             yield q
 
+    def is_minimal(self, min_area):
+        for (p, present) in self.parcels.iteritems():
+            if present and self.area - p.area >= min_area:
+                return False
+
+        return True
 
 def load(parcel_file, adjacency_file):
     "Load parcel and adjacency data from the given files."
