@@ -271,11 +271,11 @@ def main():
 
     compute_interference(patches, reverse_index)
 
-    # (Change `sys.stdout` to `open('/path/to/output/file', 'w')` to
-    # write the data somewhere.)
-    dump_patches(sys.stdout, patches)
+    with open('Patches.txt', 'w') as patches_file:
+        dump_patches(patches_file, patches)
 
-    dump_interference(sys.stdout, patches)
+    with open('Interference.txt', 'w') as interference_file:
+        dump_interference(interference_file, patches)
 
 if __name__ == "__main__":
     main()
