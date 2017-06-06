@@ -245,7 +245,6 @@ def compute_interference(patches, reverse_index):
         for other in others:
             if patch is not other:  # nobody interferes with themselves
                 patch.interfering.add(other)
-                other.interfering.add(patch)
 
     for patch in patches:
         for (parcel, present) in patch.parcels.iteritems():
