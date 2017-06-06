@@ -195,12 +195,12 @@ def load(parcel_file, adjacency_file):
 def dump_patches(dump_file, patches):
     """Dump patches to CSV file.
     The format is one patch per row.
-    Each row consists of a unique patch id, then the total area of the patch, followed by the list of parcel ids in that patch."""
+    Each row consists of a unique patch id followed by the list of parcel ids in that patch."""
 
     def patch_to_row(patch):
         l = [p.id for (p, present) in patch.parcels.items() if present]
         l.sort()
-        return [patch.id, patch.area] + l
+        return [patch.id] + l
 
     csv.writer(dump_file).writerows([patch_to_row(patch) for patch in patches])
 
