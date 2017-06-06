@@ -145,8 +145,7 @@ class Patch(object):
     def mark_all(self, l):
         "Mark all parcels in the given list, if they are not already present."
         for p in l:
-            if p not in self.parcels:
-                self.mark(p)
+            self.mark(p)
 
     def adjacent(self):
         "A generator of (non-marked) parcels adjacent to this patch."
