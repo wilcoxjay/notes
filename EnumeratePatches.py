@@ -165,6 +165,11 @@ class Patch(object):
                         if q not in self.parcels:
                             yield q
 
+    def sorted_parcels(self):
+        l = [p for (p, present) in self.parcels.iteritems() if present]
+        l.sort()
+        return l
+
     def is_minimal(self, min_area):
         for (p, present) in self.parcels.iteritems():
             if present and self.area - p.area >= min_area:
@@ -187,20 +192,70 @@ def load(parcel_file, adjacency_file):
 
     return parcels
 
-def dump(dump_file, patches):
+def dump_patches(dump_file, patches):
     """Dump patches to CSV file.
     The format is one patch per row.
-    Each row consists of the list of parcel ids in that patch."""
+    Each row consists of a unique patch id, then the total area of the patch, followed by the list of parcel ids in that patch."""
+
     def patch_to_row(patch):
         l = [p.id for (p, present) in patch.parcels.items() if present]
         l.sort()
-        return l
+        return [patch.id, patch.area] + l
 
-    l = [patch_to_row(patch) for patch in patches]
-    l.sort()
+    csv.writer(dump_file).writerows([patch_to_row(patch) for patch in patches])
+
+def dump_interference(dump_file, patches):
+    """Dump patch interference data to CSV file.
+    Each row contains the unqiue ids of two interfering patches."""
+
+    l = []
+    for patch in patches:
+        tmp = []
+        for other in patch.interfering:
+            tmp.append([patch.id, other.id])
+        tmp.sort()
+        l.extend(tmp)
 
     csv.writer(dump_file).writerows(l)
 
+def compute_reverse_index(parcels, patches):
+    reverse_index = {}
+
+    for parcel in parcels:
+        reverse_index[parcel] = []
+
+    for patch in patches:
+        for (p, present) in patch.parcels.iteritems():
+            if present:
+                reverse_index[p].append(patch)
+
+    return reverse_index
+
+def assign_ids(patches):
+    n = 1
+    for patch in patches:
+        patch.id = n
+        n += 1
+
+def compute_interference(patches, reverse_index):
+    for patch in patches:
+        patch.interfering = set()
+
+    def mark_interfering(patch, others):
+        for other in others:
+            if patch is not other:  # nobody interferes with themselves
+                patch.interfering.add(other)
+                other.interfering.add(patch)
+
+    for patch in patches:
+        for (parcel, present) in patch.parcels.iteritems():
+            if present:
+                # if another patch shares this parcel, then it overlaps -> interferes
+                mark_interfering(patch, reverse_index[parcel])
+
+                # if another patch contains an adjacent parcel, it interferes
+                for adj_parcel in parcel.adjacent:
+                    mark_interfering(patch, reverse_index[adj_parcel])
 
 def main():
     # (Edit these paths to point to the data.)
@@ -208,11 +263,20 @@ def main():
          open('/Users/jrw12/Downloads/Adjacency.txt') as adjacency_file:
          parcels = load(parcel_file, adjacency_file)
 
-    patches = enumerate_patches(parcels, 50)
+    patches = list(enumerate_patches(parcels, 50))
+    patches.sort(key=lambda patch: patch.sorted_parcels())
+
+    reverse_index = compute_reverse_index(parcels, patches)
+
+    assign_ids(patches)
+
+    compute_interference(patches, reverse_index)
 
     # (Change `sys.stdout` to `open('/path/to/output/file', 'w')` to
     # write the data somewhere.)
-    dump(sys.stdout, patches)
+    dump_patches(sys.stdout, patches)
+
+    dump_interference(sys.stdout, patches)
 
 if __name__ == "__main__":
     main()
