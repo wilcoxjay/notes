@@ -13,6 +13,7 @@
 
 import copy
 import csv
+from itertools import *
 import sys
 
 # Main algorithm.
@@ -50,14 +51,7 @@ def enumerate_patches(parcels, min_area):
         # area bound, we stop expanding.  "Stop expanding" here means
         # "don't put anything back on the worklist".
         if patch.area >= min_area:
-            # That said, it is possible to reach this point with a
-            # non-minimal patch.  For example, we could have added a
-            # small parcel early on, that actually isn't necessary.
-            # So we double check minimality here.
-            if patch.is_minimal(min_area):
-                yield patch
-
-            # But in either case, we know we don't have to keep expanding.
+            yield patch
             continue
 
         # Consider all possible one-step expansions of current patch.
@@ -167,15 +161,8 @@ class Patch(object):
 
     def sorted_parcels(self):
         l = [p for (p, present) in self.parcels.iteritems() if present]
-        l.sort()
+        l.sort(key=lambda parcel: parcel.id)
         return l
-
-    def is_minimal(self, min_area):
-        for (p, present) in self.parcels.iteritems():
-            if present and self.area - p.area >= min_area:
-                return False
-
-        return True
 
 def load(parcel_file, adjacency_file):
     "Load parcel and adjacency data from the given files."
@@ -256,20 +243,75 @@ def compute_interference(patches, reverse_index):
                 for adj_parcel in parcel.adjacent:
                     mark_interfering(patch, reverse_index[adj_parcel])
 
+def proper_nonempty_subsets(l):
+    def go(l, i):
+        if i >= len(l):
+            yield ()
+            raise StopIteration
+        for x in go(l, i+1):
+            yield (l[i],) + x
+            yield x
+
+    return ifilter(lambda t: (0 < len(t) and len(t) < len(l)), go(l, 0))
+
+
+def minimize(patches):
+    S = set()
+    for patch in patches:
+        S.add(tuple(patch.sorted_parcels()))
+
+    l = []
+
+    for patch in patches:
+        keep = True
+        for t2 in proper_nonempty_subsets(tuple(patch.sorted_parcels())):
+            if t2 in S:
+                keep = False
+        if keep:
+            l.append(patch)
+
+    return l
+
+def compute_patches(parcels):
+    patches = list(enumerate_patches(parcels, 50))
+    patches = minimize(patches)
+    patches.sort(key=lambda patch: patch.sorted_parcels())
+
+    return patches
+
+def dump_cplex(cplex_file, patches):
+    def var(patch):
+        return "x" + str(patch.id)
+
+    print >> cplex_file, "maximize"
+    print >> cplex_file, " ", " + ".join(var(patch) for patch in patches)
+
+    print >> cplex_file, "subject to"
+    for patch in patches:
+        for other in patch.interfering:
+            if patch.id < other.id:
+                print >> cplex_file, "  {} + {} <= 1".format(var(patch), var(other))
+
+    print >> cplex_file, "binary"
+    for patch in patches:
+        print >> cplex_file, "  {}".format(var(patch))
+
+    print >> cplex_file, "end"
+
 def main():
     # (Edit these paths to point to the data.)
     with open('/Users/jrw12/Downloads/Parcels.txt') as parcel_file, \
          open('/Users/jrw12/Downloads/Adjacency.txt') as adjacency_file:
-         parcels = load(parcel_file, adjacency_file)
+        parcels = load(parcel_file, adjacency_file)
 
-    patches = list(enumerate_patches(parcels, 50))
-    patches.sort(key=lambda patch: patch.sorted_parcels())
-
-    reverse_index = compute_reverse_index(parcels, patches)
+    patches = compute_patches(parcels)
 
     assign_ids(patches)
 
-    compute_interference(patches, reverse_index)
+    compute_interference(patches, compute_reverse_index(parcels, patches))
+
+    with open('Patches.lp', 'w') as cplex_file:
+        dump_cplex(cplex_file, patches)
 
     with open('Patches.txt', 'w') as patches_file:
         dump_patches(patches_file, patches)
