@@ -7,23 +7,23 @@
 Require Import List.
 Import ListNotations.
 Require Import Classes.EquivDec.
-Require Import Coq.Program.Program.
 
 Set Implicit Arguments.
 Set Maximal Implicit Insertion.
 
 (* First, some library helper functions and notations. *)
 
-Obligation Tactic := unfold complement, equiv ; program_simpl.
-Program Instance option_eqdec A `(EqDec A eq) : EqDec (option A) eq :=
+Instance option_eqdec A `(EqDec A eq) : EqDec (option A) eq :=
 {
   equiv_dec x y :=
     match x, y with
-      | Some a, Some b => if a == b then in_left else in_right
-      | None, None => in_left
-      | Some _, None | None, Some _ => in_right
+      | Some a, Some b => if a == b then left _ else right _
+      | None, None => left _
+      | Some _, None | None, Some _ => right _
     end
  }.
+all: congruence.
+Defined.
 
 
 Definition filterMap {A B} (f : A -> option B) : list A -> list B :=
@@ -267,28 +267,32 @@ Module a_b_example.
     Inductive t:Type :=
       A | B.
 
-    Program Instance eqdec : EqDec t eq :=
+    Instance eqdec : EqDec t eq :=
       { equiv_dec x y :=
           match x, y with
-          | A, A => in_left
-          | B, B => in_left
-          | A, B | B, A => in_right
+          | A, A => left _
+          | B, B => left _
+          | A, B | B, A => right _
           end
       }.
+    all: congruence.
+    Defined.
   End non_terminal.
 
   Module terminal.
     Inductive t : Type :=
       a | b.
 
-    Program Instance eqdec : EqDec t eq :=
+    Instance eqdec : EqDec t eq :=
       { equiv_dec x y :=
           match x, y with
-          | a, a => in_left
-          | b, b => in_left
-          | a, b | b, a => in_right
+          | a, a => left _
+          | b, b => left _
+          | a, b | b, a => right _
           end
       }.
+    all: congruence.
+    Defined.
   End terminal.
 
   Definition a_b_rules: list(non_terminal.t * rhs.t terminal.t non_terminal.t):=
