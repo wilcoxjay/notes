@@ -19,18 +19,17 @@ method ArrayInit<A>(f: int -> A, a: array<A>)
     }
 }
 
-type Elt = ()
-
-trait ArrayElementInitializer {
+class ArrayElementInitializer<Elt> {
     predicate Valid(i: int, a: Elt)
-//        reads this
+        reads this
+
     method Init(i: int) returns (a: Elt)
         modifies this
         ensures Valid(i, a)
         ensures forall x, y :: old(allocated(y)) && old(Valid(x, y)) ==> Valid(x, y)
 }
 
-method InitializeArray(aei: ArrayElementInitializer, a: array<Elt>)
+method InitializeArray<Elt>(aei: ArrayElementInitializer<Elt>, a: array<Elt>)
     requires aei != null && a != null
     modifies a, aei
     ensures forall x :: 0 <= x < a.Length ==> aei.Valid(x, a[x])
@@ -41,15 +40,7 @@ method InitializeArray(aei: ArrayElementInitializer, a: array<Elt>)
         invariant 0 <= i <= a.Length
         invariant forall x :: 0 <= x < i ==> aei.Valid(x, a[x])
     {
-        assert forall x :: 0 <= x < i ==> aei.Valid(x, a[x]);
-//        assert aei !in aei.Valid.reads;
-        var ai := aei.Init(i);
-        assert aei.Valid(i, ai);
-        
-        forall x | 0 <= x < i ensures aei.Valid(x, a[x])
-        {
-            assert aei.Valid(x, a[x]);
-        }
+        a[i] := aei.Init(i);
         i := i + 1;
     }
 }
@@ -191,20 +182,19 @@ method ArrayFold<A, B>(f: (A, B) -> B, b0: B, a: array<A>) returns (b: B)
     }
 }
 
-
-
 method GenericMax<A>(cmp: (A, A) -> bool, a: array<A>) returns (max: A)
     requires a != null && a.Length > 0
     requires forall x, y :: cmp.requires(x, y)
     requires forall x, y :: cmp(x, y) || cmp(y, x);
     requires forall x, y, z :: cmp(x, y) && cmp(y, z) ==> cmp(x, z);
 
-    ensures forall x, y :: cmp.requires(x, y)
+    ensures max in a[..]
     ensures forall x :: 0 <= x < a.Length ==> cmp(a[x], max)
 {
     max := a[0];
     var i := 0;
     while i < a.Length
+        invariant max in a[..]
         invariant 0 <= i <= a.Length
         invariant forall x :: 0 <= x < i ==> cmp(a[x], max)
     {
@@ -215,42 +205,63 @@ method GenericMax<A>(cmp: (A, A) -> bool, a: array<A>) returns (max: A)
     }
 }
 
+method Set<A>(f: A -> bool, a: array<A>, i: int, x: A)
+    requires a != null
+    requires forall y :: a !in f.reads(y)
+    requires forall j :: 0 <= j < a.Length ==> f.requires(a[j]) && f(a[j])
+    requires 0 <= i < a.Length
+    requires f.requires(x) && f(x)
+    modifies a
+    ensures forall y :: old(allocated(y)) ==> a !in f.reads(y)
+    ensures forall j :: 0 <= j < a.Length ==> f.requires(a[j]) && f(a[j])
+{
+    a[i] := x;
+}
+
+method Insert<A>(cmp: (A, A) -> bool, a: array<A>, i: int)
+    requires a != null
+    requires forall x, y :: x in a[..] && y in a[..] ==> a !in cmp.reads(x, y)
+    requires forall x, y :: x in a[..] && y in a[..] ==> cmp.requires(x, y)
+    requires forall x, y :: x in a[..] && y in a[..] ==> cmp(x, y) || cmp(y, x)
+    requires forall x, y, z :: x in a[..] && y in a[..] && z in a[..] ==> cmp(x, y) && cmp(y, z) ==> cmp(x, z)
+    requires 0 <= i < a.Length
+    requires forall x, y :: 0 <= x < y < i ==> cmp(a[x], a[y])
+    modifies a
+    ensures forall x :: 0 <= x < a.Length ==> a[x] in old(a[..])
+    ensures forall x, y :: 0 <= x < y <= i ==> cmp(a[x], a[y])
+{
+    var j := i - 1;
+    while j >= 0 && !cmp(a[j], a[j + 1])
+        modifies a
+        invariant -1 <= j < i <= a.Length
+        invariant forall x :: 0 <= x < a.Length ==> a[x] in old(a[..])
+        invariant forall x, y :: 0 <= x < y <= j ==> cmp(a[x], a[y])
+        invariant forall x, y :: j < x < y <= i ==> cmp(a[x], a[y])
+        invariant forall x, y :: 0 <= x < j + 1 < y <= i ==> cmp(a[x], a[y])
+    {
+        a[j], a[j+1] := a[j+1], a[j];
+        j := j - 1;
+    }
+}
+
 method GenericSort<A>(cmp: (A, A) -> bool, a: array<A>)
     requires a != null && a.Length > 0
-    requires forall x, y :: a !in cmp.reads(x, y)
-    requires forall x, y :: cmp.requires(x, y)
-    requires forall x, y :: cmp(x, y) || cmp(y, x);
-    requires forall x, y, z :: cmp(x, y) && cmp(y, z) ==> cmp(x, z);
+    requires forall x, y :: x in a[..] && y in a[..] ==> a !in cmp.reads(x, y)
+    requires forall x, y :: x in a[..] && y in a[..] ==> cmp.requires(x, y)
+    requires forall x, y :: x in a[..] && y in a[..] ==> cmp(x, y) || cmp(y, x)
+    requires forall x, y, z :: x in a[..] && y in a[..] && z in a[..] ==> cmp(x, y) && cmp(y, z) ==> cmp(x, z)
     modifies a
-    ensures forall x, y :: cmp.requires(x, y)
+    ensures forall x :: 0 <= x < a.Length ==> a[x] in old(a[..])
     ensures forall x, y :: 0 <= x < y < a.Length ==> cmp(a[x], a[y])
 {
     var i := 0;
     while i < a.Length
         modifies a
         invariant 0 <= i <= a.Length
-        invariant forall x, y :: a !in cmp.reads(x, y)
-        invariant forall x, y :: cmp.requires(x, y)
-        invariant forall x, y :: cmp(x, y) || cmp(y, x)
-        invariant forall x, y, z :: cmp(x, y) && cmp(y, z) ==> cmp(x, z)
+        invariant forall x :: 0 <= x < a.Length ==> a[x] in old(a[..])
         invariant forall x, y :: 0 <= x < y < i ==> cmp(a[x], a[y])
-        
     {
-        var j := i - 1;
-        while j >= 0 && !cmp(a[j], a[j + 1])
-            modifies a
-            invariant forall x, y :: a !in cmp.reads(x, y)
-            invariant forall x, y :: cmp.requires(x, y)
-            invariant forall x, y :: cmp(x, y) || cmp(y, x)
-            invariant forall x, y, z :: cmp(x, y) && cmp(y, z) ==> cmp(x, z)
-            invariant -1 <= j < i <= a.Length
-            invariant forall x, y :: 0 <= x < y <= j ==> cmp(a[x], a[y])
-            invariant forall x, y :: j < x < y <= i ==> cmp(a[x], a[y])
-            invariant forall x, y :: 0 <= x < j + 1 < y <= i ==> cmp(a[x], a[y])
-        {
-            a[j], a[j+1] := a[j+1], a[j];
-            j := j - 1;
-        }
+        Insert(cmp, a, i);
         i := i + 1;
     }
 }
