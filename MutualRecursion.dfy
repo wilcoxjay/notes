@@ -1,6 +1,3 @@
-module Prelude {
-}
-
 module M1 {
     import M2
 
