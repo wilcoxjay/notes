@@ -1,5 +1,18 @@
 // RUN: /compile:0 /nologo /noNLarith /noCheating:1 /rlimit:1000000
 
+module OptionModule {
+    datatype Option<A> = None | Some(val: A)
+}
+
+module SetModule {
+    export reveals AllElements
+
+    function AllElements<A>(): iset<A> 
+    {
+        iset a: A | true
+    }
+}
+
 module Spec {
     export reveals T, Behavior, BehaviorSatisfies
            provides ExtendBehavior
@@ -25,20 +38,25 @@ module Spec {
 
 module Simulation {
     import Spec
+    import Invariants
     export reveals Request, InitDiagram, NextDiagram, ValidRequest
-           provides Spec, PerformSimulation
+           provides Spec, Invariants, PerformSimulation
 
 
     datatype Request<L, H> =
         Request(
           lspec: Spec.T<L>,
           hspec: Spec.T<H>,
+          inv: iset<L>,
           sim_rel: iset<(L, H)>
           )
 
     predicate InitDiagram<L, H>(req: Request<L, H>)
     {
-        forall l :: l in req.lspec.init ==>
+        forall l :: 
+            && l in req.lspec.init
+            && l in req.inv
+            ==>
             exists h ::
                 h in req.hspec.init && (l, h) in req.sim_rel
     }
@@ -48,6 +66,7 @@ module Simulation {
         forall l, l', h ::
             && (l, l') in req.lspec.next
             && (l, h) in req.sim_rel
+            && l in req.inv
             ==> exists h' ::
                 && (h, h') in req.hspec.next
                 && (l', h') in req.sim_rel
@@ -55,6 +74,7 @@ module Simulation {
 
     predicate ValidRequest<L, H>(req: Request<L, H>)
     {
+        && Invariants.IsInvariant(req.inv, req.lspec)
         && InitDiagram(req)
         && NextDiagram(req)
     }
@@ -90,7 +110,7 @@ module Simulation {
 
 module Invariants {
     import Spec
-    export provides Spec, EstablishInvariantByInduction, InvariantTrueInitially
+    export provides Spec, EstablishInvariantByInduction, InvariantTrueInitially, InvariantImplies
            reveals IsInvariant, IsInductive
 
     predicate IsInductive<A>(inv: iset<A>, spec: Spec.T<A>)
@@ -216,91 +236,267 @@ module Invariants {
     }
 }
 
-module ConjoinInvariant {
-    import Spec
-    import Invariants
-    import Simulation
+module Example {
+    module Layer0 {
+        import Spec 
 
-    function ConjoinInvariantToInit<A>(init: iset<A>, inv: iset<A>): iset<A>
-    {
-        init * inv
-    }
+        type Tid = int
 
-    function ConjoinInvariantToNext<A>(next: iset<(A, A)>, inv: iset<A>): iset<(A, A)>
-    {
-        iset a1, a2 | (a1, a2) in next && a1 in inv && a2 in inv :: (a1, a2)
-    }
-
-    function ConjoinInvariantToSpec<A>(spec: Spec.T<A>, inv: iset<A>): Spec.T<A>
-    {
-        Spec.Make(ConjoinInvariantToInit(spec.init, inv), ConjoinInvariantToNext(spec.next, inv))
-    }
-
-    function ConjoinInvariantSimulation<A>(spec: Spec.T<A>, inv: iset<A>): iset<(A, A)>
-    {
-        iset a, b |
-            a in inv && Spec.BehaviorSatisfies(b, spec) && |b| > 0 && a == b[|b| - 1] :: (a, a)
-    }
-
-    function ConjoinInvariantRequest<A>(spec: Spec.T<A>, inv: iset<A>): Simulation.Request<A, A>
-    {
-        Simulation.Request(
-            spec,
-            ConjoinInvariantToSpec(spec, inv),
-            ConjoinInvariantSimulation(spec, inv)
-            )
-    }
-
-    lemma ConjoinInitSimulation<A>(spec: Spec.T<A>, inv: iset<A>)
-        requires Invariants.IsInvariant(inv, spec)
-        ensures (var req := ConjoinInvariantRequest(spec, inv);
-            Simulation.InitDiagram(req))
-    {
-        var req := ConjoinInvariantRequest(spec, inv);
-        forall l | l in req.lspec.init
-            ensures exists h ::
-                h in req.hspec.init && (l, h) in req.sim_rel
+        datatype State = State(b: bool)
+            
+        predicate Init(s: State)
         {
-            Invariants.InvariantTrueInitially(inv, spec);
-            var b := [l];
-            assert Spec.BehaviorSatisfies(b, spec);
-            assert l in req.hspec.init && (l, l) in req.sim_rel;
+            !s.b
         }
 
-    }
-
-    lemma ConjoinNextSimulation<A>(spec: Spec.T<A>, inv: iset<A>)
-        requires Invariants.IsInvariant(inv, spec)
-        ensures (var req := ConjoinInvariantRequest(spec, inv);
-            Simulation.NextDiagram(req))
-    {
-        var req := ConjoinInvariantRequest(spec, inv);
-
-        forall l, l', h |
-            && (l, l') in req.lspec.next
-            && (l, h) in req.sim_rel
-        ensures
-            && (h, l') in req.hspec.next
-            && (l', l') in req.sim_rel
+        predicate Acquire(tid: Tid, s: State, s': State) 
         {
-            var b :| Spec.BehaviorSatisfies(b, spec) && |b| > 0 && l == b[|b| - 1];
-            var b' := b + [l'];
-            Spec.ExtendBehavior(spec, b, l');
+            && !s.b
+            && s'.b
+        }
 
-            assert b'[|b'| - 1] in inv;
+        predicate Release(tid: Tid, s: State, s': State) 
+        {
+            && s.b
+            && !s'.b
+        }
+
+        predicate ThreadNext(tid: Tid, s: State, s': State)
+        {
+            || Acquire(tid, s, s')
+            || Release(tid, s, s')
+        }
+
+        predicate Next(s: State, s': State)
+        {
+            exists tid :: ThreadNext(tid, s, s')
+        }
+
+        function GetSpec(): Spec.T<State>
+        {
+            Spec.Make(iset s | Init(s), iset s1, s2 | Next(s1, s2) :: (s1, s2))
         }
     }
 
+    module Layer1 {
+        import Spec
+        import Invariants
+        import opened OptionModule
 
-    lemma ConjoinInvariantToSpecSimulation<A>(spec: Spec.T<A>, inv: iset<A>)
-        returns (req: Simulation.Request<A, A>)
-        requires Invariants.IsInvariant(inv, spec)
-        ensures req == ConjoinInvariantRequest(spec, inv)
-        ensures Simulation.ValidRequest(req)
-    {
-        req := ConjoinInvariantRequest(spec, inv);
+        type Tid = int
 
-        ConjoinInitSimulation(spec, inv);
-        ConjoinNextSimulation(spec, inv);
+        datatype State = State(b: bool, lock: Option<Tid>)
+            
+        predicate Init(s: State)
+        {
+            && !s.b
+            && s.lock.None?
+        }
+
+        predicate Acquire(tid: Tid, s: State, s': State) 
+        {
+            && !s.b
+            && s'.b
+            && s'.lock == Some(tid)
+        }
+
+        predicate Release(tid: Tid, s: State, s': State) 
+        {
+            && s.b
+            && !s'.b
+            && s'.lock.None?
+        }
+
+        predicate ThreadNext(tid: Tid, s: State, s': State)
+        {
+            || Acquire(tid, s, s')
+            || Release(tid, s, s')
+        }
+
+        predicate Next(s: State, s': State)
+        {
+            exists tid :: ThreadNext(tid, s, s')
+        }
+
+        function GetSpec(): Spec.T<State>
+        {
+            Spec.Make(iset s | Init(s), iset s1, s2 | Next(s1, s2) :: (s1, s2))
+        }
+
+        predicate Inv(s: State)
+        {
+            s.b <==> s.lock.Some?
+        }
+
+        function GetInv(): iset<State>
+        {
+            iset s | Inv(s)
+        }
+
+        lemma InvIsInvariant()
+            ensures Invariants.IsInvariant(GetInv(), GetSpec())
+        {
+            Invariants.EstablishInvariantByInduction(GetInv(), GetSpec());
+        }
+    }
+
+    module Layer2 {
+        import Spec
+        import opened OptionModule
+
+        type Tid = int
+
+        datatype State = State(lock: Option<Tid>)
+            
+        predicate Init(s: State)
+        {
+            s.lock.None?
+        }
+
+        predicate Acquire(tid: Tid, s: State, s': State) 
+        {
+            && s.lock.None?
+            && s'.lock == Some(tid)
+        }
+
+        predicate Release(tid: Tid, s: State, s': State) 
+        {
+            && s.lock.Some?
+            && s'.lock.None?
+        }
+
+        predicate ThreadNext(tid: Tid, s: State, s': State)
+        {
+            || Acquire(tid, s, s')
+            || Release(tid, s, s')
+        }
+
+        predicate Next(s: State, s': State)
+        {
+            exists tid :: ThreadNext(tid, s, s')
+        }
+
+        function GetSpec(): Spec.T<State>
+        {
+            Spec.Make(iset s | Init(s), iset s1, s2 | Next(s1, s2) :: (s1, s2))
+        }
+    }
+
+    module Sim01 {
+        import Low = Layer0
+        import High = Layer1
+        import Spec
+        import Simulation
+        import opened OptionModule
+        import opened SetModule
+
+        predicate SimRel(s0: Low.State, s1: High.State) 
+        {
+            s0.b == s1.b
+        }
+
+        function GetRequest(): Simulation.Request<Low.State, High.State>
+        {
+            Simulation.Request(Low.GetSpec(), High.GetSpec(), AllElements(), iset s0, s1 | SimRel(s0, s1) :: (s0, s1))
+        }
+
+        lemma InitDiagram()
+            ensures Simulation.InitDiagram(GetRequest())
+        {
+            var req := GetRequest();
+            forall l | l in req.lspec.init 
+                ensures var h := High.State(false, None); h in req.hspec.init && (l, h) in req.sim_rel
+            {
+            }
+        }
+
+        lemma NextDiagram()
+            ensures Simulation.NextDiagram(GetRequest())
+        {
+            var req := GetRequest();
+            forall l, l', h |
+                && (l, l') in req.lspec.next
+                && (l, h) in req.sim_rel
+            ensures exists h' ::
+                    && (h, h') in req.hspec.next
+                    && (l', h') in req.sim_rel
+            {
+                var tid :| Low.ThreadNext(tid, l, l');
+                var h': High.State;
+                if Low.Acquire(tid, l, l') {
+                    h' := High.State(l'.b, Some(tid));
+                } else {
+                    assert Low.Release(tid, l, l');
+                    h' := High.State(l'.b, None);
+                }
+                assert High.ThreadNext(tid, h, h');
+                assert (h, h') in req.hspec.next;
+            }
+        }
+
+        lemma Sim()
+            ensures Simulation.ValidRequest(GetRequest())
+        {
+            var req := GetRequest();
+            InitDiagram();
+            NextDiagram();
+        }
+    }
+
+    module Sim12 {
+        import Low = Layer1
+        import High = Layer2
+        import Spec
+        import Simulation
+        import opened OptionModule
+        import opened SetModule
+
+        predicate SimRel(s1: Low.State, s2: High.State) 
+        {
+            && s1.lock == s2.lock
+        }
+
+        function GetRequest(): Simulation.Request<Low.State, High.State>
+        {
+            Simulation.Request(Low.GetSpec(), High.GetSpec(), Low.GetInv(), iset s0, s1 | SimRel(s0, s1) :: (s0, s1))
+        }
+
+        lemma InitDiagram()
+            ensures Simulation.InitDiagram(GetRequest())
+        {
+            var req := GetRequest();
+            forall l | l in req.lspec.init 
+                ensures var h := High.State(None); h in req.hspec.init && (l, h) in req.sim_rel
+            {
+            }
+        }
+
+        lemma NextDiagram()
+            ensures Simulation.NextDiagram(GetRequest())
+        {
+            var req := GetRequest();
+            forall l, l', h |
+                && (l, l') in req.lspec.next
+                && (l, h) in req.sim_rel
+                && Low.Inv(l)
+            ensures exists h' ::
+                    && (h, h') in req.hspec.next
+                    && (l', h') in req.sim_rel
+            {
+                var tid :| Low.ThreadNext(tid, l, l');
+                var h' := High.State(l'.lock);
+                assert High.ThreadNext(tid, h, h');
+                assert (h, h') in req.hspec.next;
+            }
+        }
+
+        lemma Sim()
+            ensures Simulation.ValidRequest(GetRequest())
+        {
+            var req := GetRequest();
+            Low.InvIsInvariant();
+            InitDiagram();
+            NextDiagram();
+        }
     }
 }
