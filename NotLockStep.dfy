@@ -3,6 +3,7 @@
 
 include "../armada/code/dafny/fl/spec/refinement.s.dfy"
 include "../armada/code/dafny/util/option.s.dfy"
+include "../armada/code/dafny/fl/util/invariants.i.dfy"
 
 /*
 var x := 0;
@@ -22,9 +23,10 @@ module Prelude {
 }
 
 module Layer0 {
+    import opened Prelude
     import opened util_option_s
     import opened GeneralRefinementModule
-    import opened Prelude
+    import opened InvariantsModule
     
     datatype State = State(x: int, log: seq<Event>)
 
@@ -46,7 +48,19 @@ module Layer0 {
 
     predicate Inv(s: TotalState)
     {
-        &&
+        match s.local
+            case None => true
+            case Some(pc) => 
+                match pc {
+                    case MainPC0 => s.shared.x == 0
+                    case MainPC1 => s.shared.x == 1
+                    case MainPC2 => s.shared.x == 2
+                }
+    }
+
+    function GetInv(): iset<TotalState>
+    {
+        iset s | Inv(s)
     }
 
     predicate Inc(s: State, s': State)
@@ -84,12 +98,19 @@ module Layer0 {
     {
         Spec(iset s | Init(s), iset s, s' | Next(s, s') :: StatePair(s, s'))
     }
+
+    lemma lemma_InvIsInvariant()
+        ensures IsSpecInvariant(GetInv(), GetSpec())
+    {
+        lemma_EstablishSpecInvariantPure(GetInv(), GetSpec());
+    }
 }
 
 module Layer1 {
+    import opened Prelude
     import opened util_option_s
     import opened GeneralRefinementModule
-    import opened Prelude
+ 
 
     datatype State = State(x: int, log: seq<Event>)
 
@@ -146,6 +167,7 @@ module Layer1 {
 module Sim01 {
     import opened util_option_s
     import opened GeneralRefinementModule
+    import opened InvariantsModule
     import Low = Layer0
     import High = Layer1
 
@@ -157,6 +179,30 @@ module Sim01 {
     function RefinementSet(): iset<RefinementPair<Low.TotalState, High.TotalState>>
     {
         iset l, h | RefinementPredicate(l, h) :: RefinementPair(l, h)
+    }
+
+    predicate SimulationRelation(l: Low.TotalState, h: High.TotalState) 
+    {
+        && l.shared.log == h.shared.log
+        && (l.local.None? <==> h.local.None?)
+        && match l.local
+           case None => true
+           case Some(lpc) => 
+            match lpc 
+            case MainPC0 => 
+                && h.local.v == High.MainPC0
+                && h.shared.x == 0
+            case MainPC1 => 
+                && h.local.v == High.MainPC0
+                && h.shared.x == 0
+            case MainPC2 => 
+                && h.local.v == High.MainPC1
+                && h.shared.x == 2
+    }
+
+    function GetSimulationSet(): iset<RefinementPair<Low.TotalState, High.TotalState>>
+    {
+        iset l, h | SimulationRelation(l, h) :: RefinementPair(l, h)
     }
 
     lemma lemma_Refinement()
@@ -180,10 +226,13 @@ module Sim01 {
             while li < |lb|
                 invariant 0 <= li <= |lb|
                 invariant BehaviorSatisfiesSpec(hb, h_spec)
-                invariant BehaviorRefinesBehaviorUsingRefinementMap(lb[..li], hb, relation, lh_map)
+                invariant BehaviorRefinesBehaviorUsingRefinementMap(lb[..li], hb, GetSimulationSet(), lh_map)
                 invariant IsValidRefinementMap(li, |hb|, lh_map)
             {
                 var l := lb[li];
+                Low.lemma_InvIsInvariant();
+                lemma_SpecInvariantHoldsAtStep(lb, li, l_spec, Low.GetInv());
+                assert Low.Inv(l);
                 match l.local 
                     case Some(pc) => {
                         match pc
