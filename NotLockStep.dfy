@@ -38,10 +38,15 @@ module Layer0 {
         && s.log == []
     }
 
-    predicate Init(s: TotalState) 
+    predicate Init(s: TotalState)
     {
         && SharedInit(s.shared)
         && s.local == Some(MainPC0)
+    }
+
+    predicate Inv(s: TotalState)
+    {
+        &&
     }
 
     predicate Inc(s: State, s': State)
@@ -193,8 +198,6 @@ module Sim01 {
                     }
             }
             assert lb == lb[..li];
-//            assert BehaviorRefinesBehaviorUsingRefinementMap(lb, hb, relation, lh_map);
-//            assert BehaviorRefinesBehavior(lb, hb, relation);
         }
     }
 }
