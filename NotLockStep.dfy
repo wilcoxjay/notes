@@ -1,8 +1,10 @@
 // RUN: /compile:0 /nologo /noNLarith /noCheating:1 /rlimit:1000000
 
 
-include "../armada/code/dafny/fl/spec/refinement.s.dfy"
 include "../armada/code/dafny/util/option.s.dfy"
+include "../armada/code/dafny/util/collections/seqs.s.dfy"
+include "../armada/code/dafny/util/collections/seqs.i.dfy"
+include "../armada/code/dafny/fl/spec/refinement.s.dfy"
 include "../armada/code/dafny/fl/util/invariants.i.dfy"
 
 /*
@@ -166,6 +168,8 @@ module Layer1 {
 
 module Sim01 {
     import opened util_option_s
+    import opened util_collections_seqs_s
+    import opened util_collections_seqs_i
     import opened GeneralRefinementModule
     import opened InvariantsModule
     import Low = Layer0
@@ -220,33 +224,52 @@ module Sim01 {
             assert h0 in h_spec.init;
 
             var hb := [h0];
-            var lh_map: RefinementMap := [RefinementRange(0, 0)];
             var li := 1;
 
             while li < |lb|
-                invariant 0 <= li <= |lb|
+                invariant 1 <= li <= |lb|
+                invariant |hb| == li
                 invariant BehaviorSatisfiesSpec(hb, h_spec)
-                invariant BehaviorRefinesBehaviorUsingRefinementMap(lb[..li], hb, GetSimulationSet(), lh_map)
-                invariant IsValidRefinementMap(li, |hb|, lh_map)
+                invariant forall i :: 0 <= i < li ==> SimulationRelation(lb[i], hb[i])
             {
-                var l := lb[li];
+                var l := lb[li - 1];
+                var l' := lb[li];
+                var h := last(hb);
                 Low.lemma_InvIsInvariant();
                 lemma_SpecInvariantHoldsAtStep(lb, li, l_spec, Low.GetInv());
-                assert Low.Inv(l);
-                match l.local 
-                    case Some(pc) => {
-                        match pc
-                            case MainPC0 => {
-                            }
-                            case MainPC1 => {
-                            }
-                            case MainPC2 => {
-                            }
-                    }
-                    case None => {
-                    }
+                assert l in Low.GetInv() && Low.Inv(l);
+                assert SimulationRelation(l, h);
+                var h': High.TotalState;
+                if l.local.Some? {
+                    match l.local.v
+                        case MainPC0 => {
+                            assert l'.shared.log == l.shared.log;
+                            assert l'.local.Some?;
+                            h' := h;
+                            assert SimulationRelation(l', h');
+                            assert StatePair(h, h') in h_spec.next;
+                        }
+                        case MainPC1 => {
+                            assume false;
+                            assert SimulationRelation(l', h');
+                            assert StatePair(h, h') in h_spec.next;
+                        }
+                        case MainPC2 => {
+                            assume false;
+                            assert SimulationRelation(l', h');
+                            assert StatePair(h, h') in h_spec.next;
+                        }
+                }
+                hb := hb + [h'];
+                li := li + 1;
             }
             assert lb == lb[..li];
+            var lh_map := ConvertMapToSeq(|lb|, map i | 0 <= i < |lb| :: RefinementRange(i, i));
+            forall i, j |
+                0 <= i < |lb| && lh_map[i].first <= j <= lh_map[i].last
+                ensures RefinementPair(lb[i], hb[j]) in relation
+            {}
+            assert BehaviorRefinesBehaviorUsingRefinementMap(lb, hb, relation, lh_map);
         }
     }
 }
