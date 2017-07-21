@@ -12,7 +12,7 @@ module TwoStateModule {
         Y: iset<ActorTriple<S,T>>, 
         next: iset<ActionTriple<S,A>>,
         idmap: imap<A, T>, 
-        pc: iset<StateActorPair<S,T>>,
+        pcs: seq<iset<StateActorPair<S,T>>>,
         pre: iset<StateActorPair<S,T>>,
         post: iset<StateActorPair<S,T>>
         )
@@ -69,13 +69,16 @@ module TwoStateModule {
             ==> (StateActorPair(s, tid) in pc1 <==> StateActorPair(s', tid) in pc2)
     }
     
-    predicate HoareLogicAssumptions<S,A,T>(r: YieldRequest<S, A, T>, s0: S, s1: S, s2: S, s3: S, a: A)
+    predicate HoareLogicAssumptions<S,A,T>(r: YieldRequest<S, A, T>, their_states: seq<S>, my_states: seq<S>, trace: seq<A>)
     {
-        && a in r.idmap 
-        && var tid := r.idmap[a];
+        && |their_states| - 1 == |my_states| == |trace|
+        && |trace| > 0
+        && trace[0] in r.idmap 
+        && var tid := r.idmap[trace[0]];
+        && (forall i :: 0 <= i < |trace| ==> trace[i] in r.idmap && r.idmap[trace[0]] == tid)
         && StateActorPair(s0, tid) in r.pre
         && ActorTriple(s0, s1, tid) in r.Y
-        && StateActorPair(s1, tid) in r.pc
+        && StateActorPair(s1, tid) in r.pcs[i]
         && ActionTriple(s1, s2, a) in r.next
         && ActorTriple(s2, s3, tid) in r.Y
 
@@ -83,8 +86,8 @@ module TwoStateModule {
 
     predicate HoareLogic<S,A,T>(r: YieldRequest<S, A, T>)
     {
-        forall s0, s1, s2, s3, a :: 
-            HoareLogicAssumptions(r, s0, s1, s2, s3, a)
+        forall s0, s1, s2, s3, a ::
+            HoareLogicAssumptions(r, s0, s1, s2, s3, a, i)
             ==> StateActorPair(s3, r.idmap[a]) in r.post
     }
 
@@ -93,7 +96,7 @@ module TwoStateModule {
         && YieldPredicateReflexive(r.Y)
         && YieldPredicateTransitive(r.Y)
         && YieldPredicateAbstractsInterference(r.next, r.Y, r.idmap)
-        && StableUnderYield(r.pc, r.Y)
+        && (forall i :: 0 <= i < |r.pcs| ==> StableUnderYield(r.pcs[i], r.Y))
         && HoareLogic(r)
     }
 
