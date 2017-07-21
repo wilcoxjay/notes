@@ -224,21 +224,23 @@ module Sim01 {
             assert h0 in h_spec.init;
 
             var hb := [h0];
-            var li := 1;
+            var li := 0;
 
-            while li < |lb|
-                invariant 1 <= li <= |lb|
-                invariant |hb| == li
+            while li < |lb| - 1
+                invariant 0 <= li < |lb|
+                invariant |hb| == li + 1
                 invariant BehaviorSatisfiesSpec(hb, h_spec)
-                invariant forall i :: 0 <= i < li ==> SimulationRelation(lb[i], hb[i])
+                invariant forall i :: 0 <= i <= li ==> SimulationRelation(lb[i], hb[i])
             {
-                var l := lb[li - 1];
-                var l' := lb[li];
+                var l := lb[li];
+                var l' := lb[li + 1];
                 var h := last(hb);
                 Low.lemma_InvIsInvariant();
                 lemma_SpecInvariantHoldsAtStep(lb, li, l_spec, Low.GetInv());
+                assert BehaviorSatisfiesSpec(lb, l_spec);
                 assert l in Low.GetInv() && Low.Inv(l);
                 assert SimulationRelation(l, h);
+                assert StatePair(l, l') in l_spec.next;
                 var h': High.TotalState;
                 if l.local.Some? {
                     match l.local.v
@@ -250,12 +252,12 @@ module Sim01 {
                             assert StatePair(h, h') in h_spec.next;
                         }
                         case MainPC1 => {
-                            assume false;
+                            h' := High.TotalState(High.State(l'.shared.x, l'.shared.log), Some(High.MainPC1));
                             assert SimulationRelation(l', h');
                             assert StatePair(h, h') in h_spec.next;
                         }
                         case MainPC2 => {
-                            assume false;
+                            h' := High.TotalState(High.State(l'.shared.x, l'.shared.log), None);
                             assert SimulationRelation(l', h');
                             assert StatePair(h, h') in h_spec.next;
                         }
@@ -263,7 +265,7 @@ module Sim01 {
                 hb := hb + [h'];
                 li := li + 1;
             }
-            assert lb == lb[..li];
+            assert lb == lb[..li+1];
             var lh_map := ConvertMapToSeq(|lb|, map i | 0 <= i < |lb| :: RefinementRange(i, i));
             forall i, j |
                 0 <= i < |lb| && lh_map[i].first <= j <= lh_map[i].last
