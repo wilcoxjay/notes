@@ -24,4 +24,4 @@ Lemma list_ind' :
 Proof.
   intros.
   apply list_ind'' with (l := l) (prefix := []); auto.
-Qed.q
+Qed.
