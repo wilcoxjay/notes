@@ -13,9 +13,11 @@ module TwoStateModule {
 
     datatype ActorTriple<S, T> = ActorTriple(s: S, s': S, actor: T)
 
+    datatype StateActorPair<S, T> = StateActorPair(s: S, actor: T)
+
     datatype YieldRequest<S(==), A(==), T(==)> = YieldPredicate(
         Y: iset<ActorTriple<S,T>>, 
-        next: iset<ActionTriple<S,A>>,
+        next: iset<ActionTuple<S,A>>,
         idmap: imap<A, T>, 
         pcs: seq<iset<StateActorPair<S,T>>>,
         pre: iset<StateActorPair<S,T>>,
@@ -36,19 +38,19 @@ module TwoStateModule {
             ==> ActorTriple(s1, s3, tid) in Y
     }
 
-    predicate ActionTriplesHaveActors<S,A,T>(actions: iset<ActionTriple<S,A>>, idmap: imap<A, T>)
+    predicate ActionTuplesHaveActors<S,A,T>(actions: iset<ActionTuple<S,A>>, idmap: imap<A, T>)
     {
-        (iset a, s, s' | ActionTriple(s, s', a) in actions :: a) <= idmap.Keys
+        (iset a, s, s' | ActionTuple(s, s', a) in actions :: a) <= idmap.Keys
     }
 
     predicate YieldPredicateAbstractsInterference<S,A,T>(
-        next: iset<ActionTriple<S,A>>, 
+        next: iset<ActionTuple<S,A>>, 
         Y: iset<ActorTriple<S,T>>,
         idmap: imap<A, T>
         )
     {
         forall a, tid, s, s' :: 
-            && ActionTriple(s, s', a) in next
+            && ActionTuple(s, s', a) in next
             && (a in idmap ==> idmap[a] != tid)
             ==> ActorTriple(s, s', tid) in Y
     }
@@ -64,12 +66,12 @@ module TwoStateModule {
     predicate Consecutive<S,A,T>(
         pc1: iset<StateActorPair<S,T>>, 
         pc2: iset<StateActorPair<S,T>>, 
-        next: iset<ActionTriple<S,A>>, 
+        next: iset<ActionTuple<S,A>>, 
         idmap: imap<A, T>
         )
     {
         forall a, tid, s, s' :: 
-            && ActionTriple(s, s', a) in next
+            && ActionTuple(s, s', a) in next
             && a in idmap 
             && idmap[a] == tid
             ==> (StateActorPair(s, tid) in pc1 <==> StateActorPair(s', tid) in pc2)
@@ -95,7 +97,7 @@ module TwoStateModule {
         && (forall i :: 0 <= i < |their_states| ==>
             ActorTriple(their_states[i], my_states[i], tid) in r.Y)
         && (forall i :: 0 <= i < |their_states| - 1 ==>
-            ActionTriple(my_states[i], their_states[i+1], trace[i]) in r.next)
+            ActionTuple(my_states[i], their_states[i+1], trace[i]) in r.next)
         && (forall i :: 0 <= i < |my_states| ==>
             StateActorPair(my_states[i], tid) in r.pcs[i])
     }
@@ -112,12 +114,25 @@ module TwoStateModule {
         && YieldPredicateReflexive(r.Y)
         && YieldPredicateTransitive(r.Y)
         && YieldPredicateAbstractsInterference(r.next, r.Y, r.idmap)
-//        && (forall i :: 0 <= i < |r.pcs| ==> StableUnderYield(r.pcs[i], r.Y))
+        && (forall i :: 0 <= i < |r.pcs| ==> StableUnderYield(r.pcs[i], r.Y))
+        && (forall i, j, tid, s :: 
+            && 0 <= i < |r.pcs| 
+            && 0 <= j < |r.pcs|
+            && StateActorPair(s, tid) in r.pcs[i] 
+            && StateActorPair(s, tid) in r.pcs[j] 
+            ==> i == j)
+        && (forall i, s, s', a :: 
+            && 0 <= i < |r.pcs| - 1
+            && ActionTuple(s, s', a) in r.next
+            && a in r.idmap
+            && StateActorPair(s, r.idmap[a]) in r.pcs[i]
+            ==> StateActorPair(s', r.idmap[a]) in r.pcs[i+1])
+        && |r.pcs| > 1
         && HoareLogic(r)
     }
 
     predicate RelyStateNextSeq<S,A,T>(
-        next: iset<ActionTriple<S,A>>,
+        next: iset<ActionTuple<S,A>>,
         idmap: imap<A, T>,
         states: seq<S>,
         trace: seq<A>,
@@ -143,7 +158,7 @@ module TwoStateModule {
             && StateActorPair(last(s), tid) in r.pcs[i])
         && StateActorPair(bs[0].states[0], tid) in r.pre
         && (forall i :: 0 <= i < |trace| ==>
-            ActionTriple(last(bs[i].states), bs[i+1].states[0], trace[i]) in r.next)
+            ActionTuple(last(bs[i].states), bs[i+1].states[0], trace[i]) in r.next)
     }
 
     predicate BehaviorLogic<S, A, T>(r: YieldRequest<S, A, T>)
@@ -165,7 +180,7 @@ module TwoStateModule {
     {}
 
     lemma lemma_YieldAbstractsNextSequence<S,A,T>(
-        next: iset<ActionTriple<S,A>>,
+        next: iset<ActionTuple<S,A>>,
         Y: iset<ActorTriple<S,T>>, 
         idmap: imap<A, T>, 
         states: seq<S>, 
@@ -183,7 +198,7 @@ module TwoStateModule {
             invariant 0 <= i <= |states| - 1
             invariant ActorTriple(states[0], states[i], tid) in Y
         {
-            assert ActionTriple(states[i], states[i+1], trace[i]) in next;
+            assert ActionTuple(states[i], states[i+1], trace[i]) in next;
             assert ActorTriple(states[i], states[i+1], tid) in Y;
             i := i + 1;
         }
@@ -239,6 +254,17 @@ module TwoStateModule {
         PartiallyAnnotatedBehavior(pb1.states + pb2.states, pb1.trace + [a] + pb2.trace)
     }
 
+    function AppendPB<S, A>(
+        pb1: PartiallyAnnotatedBehavior<S, A>,
+        pb2: PartiallyAnnotatedBehavior<S, A>
+        ):
+        PartiallyAnnotatedBehavior<S, A>
+        // requires |pb1.states| == |pb1.trace|
+        // requires last(pb1.states) == pb2.states[0]
+    {
+        PartiallyAnnotatedBehavior(pb1.states + pb2.states, pb1.trace + pb2.trace)
+    }
+
     function ConcatPBWithIntermediateTrace<S, A>(
         pbs: seq<PartiallyAnnotatedBehavior<S, A>>,
         trace: seq<A>
@@ -253,31 +279,130 @@ module TwoStateModule {
             AppendPBWithIntermediateAction(pbs[0], trace[0], rest)
     }
 
+    function ConcatPBWithPostTrace<S, A>(
+        pbs: seq<PartiallyAnnotatedBehavior<S, A>>,
+        trace: seq<A>
+        ):
+        PartiallyAnnotatedBehavior<S, A>
+        requires |pbs| == |trace|
+    {
+        if trace == [] then
+            PartiallyAnnotatedBehavior([], [])
+        else 
+            var rest := ConcatPBWithPostTrace(pbs[1..], trace[1..]); 
+            AppendPBWithIntermediateAction(pbs[0], trace[0], rest)
+    }
+
+    lemma lemma_AppendPB_AppendPBWithIntermediateAction<S,A>(
+        pb1: PartiallyAnnotatedBehavior<S, A>, 
+        act: A, 
+        pb2: PartiallyAnnotatedBehavior<S, A>,
+        pb3: PartiallyAnnotatedBehavior<S, A>
+        )
+        ensures AppendPB(AppendPBWithIntermediateAction(pb1, act, pb2), pb3) == 
+            AppendPBWithIntermediateAction(pb1, act, AppendPB(pb2, pb3))
+    {
+        calc {
+            AppendPB(AppendPBWithIntermediateAction(pb1, act, pb2), pb3);
+            AppendPB(PartiallyAnnotatedBehavior(pb1.states + pb2.states, pb1.trace + [act] + pb2.trace), pb3);
+            PartiallyAnnotatedBehavior((pb1.states + pb2.states) + pb3.states, (pb1.trace + [act] + pb2.trace) + pb3.trace);
+            { 
+                assert (pb1.states + pb2.states) + pb3.states == pb1.states + (pb2.states + pb3.states);
+                assert (pb1.trace + [act] + pb2.trace) + pb3.trace == pb1.trace + [act] + (pb2.trace + pb3.trace); 
+            }
+            PartiallyAnnotatedBehavior(pb1.states + (pb2.states + pb3.states), pb1.trace + [act] + (pb2.trace + pb3.trace));
+            AppendPBWithIntermediateAction(pb1, act, PartiallyAnnotatedBehavior(pb2.states + pb3.states, pb2.trace + pb3.trace));
+            AppendPBWithIntermediateAction(pb1, act, AppendPB(pb2, pb3));
+        }
+    }
+
+    lemma lemma_AppendConcatWithPostTrace_ConcatPBWithIntermediateTrace<S,A>(
+        pbs: seq<PartiallyAnnotatedBehavior<S,A>>, 
+        trace: seq<A>, 
+        final_pb: PartiallyAnnotatedBehavior<S,A>
+        )
+        requires |pbs| == |trace|
+        ensures AppendPB(ConcatPBWithPostTrace(pbs, trace), final_pb) == ConcatPBWithIntermediateTrace(pbs + [final_pb], trace)
+        decreases trace
+    {
+        if trace != [] {
+            assert (pbs + [final_pb])[1..] == pbs[1..] + [final_pb];
+            var lhs_rest := ConcatPBWithPostTrace(pbs[1..], trace[1..]); 
+            var rhs_rest := ConcatPBWithIntermediateTrace((pbs + [final_pb])[1..], trace[1..]);
+            calc {
+                AppendPB(ConcatPBWithPostTrace(pbs, trace), final_pb);
+                AppendPB(AppendPBWithIntermediateAction(pbs[0], trace[0], lhs_rest), final_pb);
+                    { lemma_AppendPB_AppendPBWithIntermediateAction(pbs[0], trace[0], lhs_rest, final_pb); }
+                AppendPBWithIntermediateAction(pbs[0], trace[0], AppendPB(lhs_rest, final_pb));
+                    { lemma_AppendConcatWithPostTrace_ConcatPBWithIntermediateTrace(pbs[1..], trace[1..], final_pb); }
+                AppendPBWithIntermediateAction((pbs + [final_pb])[0], trace[0], rhs_rest);
+                ConcatPBWithIntermediateTrace(pbs + [final_pb], trace);
+            }
+        }
+    }
 
     lemma lemma_FactorOutThreadActions<S,A,T>(
         r: YieldRequest<S, A, T>,
         b: PartiallyAnnotatedBehavior<S, A>,
         tid: T
         ) returns (
-        prefix: PartiallyAnnotatedBehavior<S,A>,
         bs: seq<PartiallyAnnotatedBehavior<S,A>>,
-        trace: seq<A>,
-        suffix: PartiallyAnnotatedBehavior<S,A>
+        trace: seq<A>
         )
         requires ValidYieldRequest(r)
         requires StateNextSeq(b.states, b.trace, r.next)
+        requires StateActorPair(b.states[0], tid) in r.pcs[0]
+        requires StateActorPair(last(b.states), tid) in last(r.pcs);
 
         ensures |bs| == |trace| + 1
-        ensures var middle := ConcatPBWithIntermediateTrace(bs, trace);
-            AppendCompatiblePB(prefix, AppendCompatiblePB(middle, suffix)) == b
-
-        ensures StateNextSeq(prefix.states, prefix.trace, r.next)
+        ensures ConcatPBWithIntermediateTrace(bs, trace) == b
         ensures BehaviorLogicAssumptions(r, bs, trace)
-        ensures StateNextSeq(suffix.states, suffix.trace, r.next)
-
-        ensures last(prefix.states) == bs[0].states[0]
-        ensures last(last(bs).states) == suffix.states[0]
     {
+        bs := [];
+        trace := [];
+        var curr_pb := PartiallyAnnotatedBehavior([b.states[0]], []);
+        var curr_pc := 0;
+
+        var i := 0;
+
+        assert b.states[..1] == [b.states[0]];
+
+        while i < |b.trace|
+            invariant 0 <= i <= |b.trace|
+            invariant |bs| == |trace| == curr_pc
+            invariant |curr_pb.states| == |curr_pb.trace| + 1
+            invariant 0 <= curr_pc < |r.pcs|
+            invariant StateActorPair(b.states[i], tid) in r.pcs[curr_pc]
+            invariant AppendPB(ConcatPBWithPostTrace(bs, trace), curr_pb) == 
+                PartiallyAnnotatedBehavior(b.states[..i+1], b.trace[..i])
+        {
+            var act := b.trace[i];
+            if act in r.idmap && r.idmap[act] == tid {
+                assert StateActorPair(b.states[i+1], tid) in r.pcs[curr_pc+1];
+                curr_pc := curr_pc + 1;
+                bs := bs + [curr_pb];
+                trace := trace + [act];
+            } else {
+                assert StateActorPair(b.states[i+1], tid) in r.pcs[curr_pc];
+                curr_pb := PartiallyAnnotatedBehavior(curr_pb.states + [b.states[i+1]], curr_pb.trace + [act]);
+            }
+            i := i + 1;
+        }
+        
+        assert i == |b.trace|;
+        assert b.trace[..i] == b.trace;
+        assert i + 1 == |b.states|;
+        assert b.states[..i+1] == b.states;
+        assert AppendPB(ConcatPBWithPostTrace(bs, trace), curr_pb) == b;
+        lemma_AppendConcatWithPostTrace_ConcatPBWithIntermediateTrace(bs, trace, curr_pb);
+
+        assert b.states[i] == last(b.states);
+        assert StateActorPair(b.states[i], tid) in r.pcs[curr_pc];
+        assert StateActorPair(b.states[i], tid) in last(r.pcs);
+        assert curr_pc == |r.pcs| - 1;
+
+        bs := bs + [curr_pb];
     }
 
 }
+
