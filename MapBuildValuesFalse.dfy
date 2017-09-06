@@ -1,23 +1,21 @@
 // RUN: /nologo /print:tmp.bpl /compile:0
 
-lemma Test(m: map<int, bool>)
-    requires m.Keys == {0}
-    requires !m[0]
+lemma MapValues()
     ensures false
 {
-    assert m.Values == {false};
-    
-    var m' := m[0 := true]; 
+    var m := map[0 := false];
+    var m' := m[0 := true];
+
     assert m'.Values == m.Values + {true};
-    assert m'.Values == {true};
-    assert {false} + {true} == {true};
     assert false;
 }
 
-
-method Main()
+lemma IMapValues()
+    ensures false
 {
-    var m := map[0 := false];
-    Test(m);
+    var m := imap[0 := false];
+    var m' := m[0 := true];
+
+    assert m'.Values == m.Values + iset{true};
     assert false;
 }

@@ -1,3 +1,5 @@
+// RUN: /noNLarith /compile:0 /rlimit:1000000
+
 include "../armada/code/dafny/fl/spec/refinement.s.dfy"
 include "../armada/code/dafny/fl/util/refinement/AnnotatedBehavior.i.dfy"
 include "../armada/code/dafny/util/collections/seqs.i.dfy"
@@ -371,7 +373,7 @@ module TwoStateModule {
             invariant 0 <= i <= |b.trace|
             invariant |bs| == |trace| == curr_pc
             invariant |curr_pb.states| == |curr_pb.trace| + 1
-            invariant 0 <= curr_pc < |r.pcs|
+            invariant 0 <= curr_pc < |r.pcs| - 1
             invariant StateActorPair(b.states[i], tid) in r.pcs[curr_pc]
             invariant AppendPB(ConcatPBWithPostTrace(bs, trace), curr_pb) == 
                 PartiallyAnnotatedBehavior(b.states[..i+1], b.trace[..i])
@@ -382,6 +384,7 @@ module TwoStateModule {
                 curr_pc := curr_pc + 1;
                 bs := bs + [curr_pb];
                 trace := trace + [act];
+                // need a fact in ValidYieldRequest that guarantees the pc is still in range here
             } else {
                 assert StateActorPair(b.states[i+1], tid) in r.pcs[curr_pc];
                 curr_pb := PartiallyAnnotatedBehavior(curr_pb.states + [b.states[i+1]], curr_pb.trace + [act]);
