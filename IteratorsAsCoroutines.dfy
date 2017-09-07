@@ -61,27 +61,14 @@ method Main()
     while true 
         decreases *
         invariant fresh(t1._new) 
-        invariant t1._modifies == {s} 
-        invariant t1._reads == {}
-
         invariant fresh(t2._new) 
-        invariant t2._modifies == {s}
-        invariant t2._reads == {}
 
-        invariant t2 !in t1._new 
-        invariant s !in t1._new
-
-        invariant t1 !in t2._new 
-        invariant s !in t2._new
-
-        invariant t1._new !! t2._new
+        invariant {s, t1, t2} !! t1._new !! t2._new
 
         invariant more1 ==> t1.Valid() 
         invariant more2 ==> t2.Valid() 
         invariant forall tid: Tid :: tid in s.flag
     {
-        assert more2 ==> t2.Valid();
-
         if {
             case more1 => more1 := t1.MoveNext(); 
             case more2 => more2 := t2.MoveNext();
