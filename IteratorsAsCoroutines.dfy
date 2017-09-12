@@ -8,8 +8,7 @@ class State {
     var critsec: map<Tid, bool>
 
     constructor() 
-        ensures forall tid': Tid :: tid' in flag 
-        ensures forall tid': Tid :: tid' in critsec && !critsec[tid']
+        ensures forall tid': Tid :: tid' in flag && tid' in critsec && !critsec[tid']
     {
         flag := map tid :: false;
         critsec := map tid :: false;
@@ -18,10 +17,19 @@ class State {
 
 iterator PetersonThread(tid: Tid, s: State) yields (critsec: bool)
     requires s != null
-    yield requires forall tid': Tid :: tid' in s.flag
-    yield ensures forall tid': Tid :: tid' in s.flag
+    yield requires forall tid': Tid :: tid' in s.flag && tid' in s.critsec
+    yield ensures forall tid': Tid :: tid' in s.flag && tid' in s.critsec
+
+    yield requires forall tid1: Tid, tid2: Tid :: s.critsec[tid1] && s.critsec[tid2] ==> tid1 == tid2
+    yield ensures forall tid1: Tid, tid2: Tid :: s.critsec[tid1] && s.critsec[tid2] ==> tid1 == tid2
+
+    yield requires forall tid1: Tid, tid2: Tid ::
+        tid2 == 1 - tid1 && s.critsec[tid1] && s.flag[tid2] ==> s.victim == tid2
+    yield ensures forall tid1: Tid, tid2: Tid ::
+        tid2 == 1 - tid1 && s.critsec[tid1] && s.flag[tid2] ==> s.victim == tid2
+
     modifies s
-    ensures forall tid': Tid :: tid' in s.flag
+    ensures forall tid': Tid :: tid' in s.flag && tid' in s.critsec
     ensures true in critsecs
 {
     var other: Tid := 1-tid;
@@ -32,7 +40,8 @@ iterator PetersonThread(tid: Tid, s: State) yields (critsec: bool)
     s.victim := tid;
     yield;
     while true 
-        invariant forall tid': Tid :: tid' in s.flag
+        invariant forall tid': Tid :: tid' in s.flag && tid' in s.critsec
+        invariant forall tid1: Tid, tid2: Tid :: s.critsec[tid1] && s.critsec[tid2] ==> tid1 == tid2
     {
         if !s.flag[other] { break; }
         yield;
@@ -42,9 +51,11 @@ iterator PetersonThread(tid: Tid, s: State) yields (critsec: bool)
 
     // critical section here
     critsec := true;
+    s.critsec := s.critsec[tid := true];
     yield;
 
     // exit critical section
+    s.critsec := s.critsec[tid := false];
     s.flag := s.flag[tid := false];
 }
 
@@ -60,14 +71,13 @@ method Main()
 
     while true 
         decreases *
-        invariant fresh(t1._new) 
-        invariant fresh(t2._new) 
-
-        invariant {s, t1, t2} !! t1._new !! t2._new
+        invariant fresh(t1._new)
+        invariant fresh(t2._new)
+        invariant {t1, t2, s} !! t1._new !! t2._new
 
         invariant more1 ==> t1.Valid() 
         invariant more2 ==> t2.Valid() 
-        invariant forall tid: Tid :: tid in s.flag
+        invariant forall tid: Tid :: tid in s.flag && tid in s.critsec
     {
         if {
             case more1 => more1 := t1.MoveNext(); 
