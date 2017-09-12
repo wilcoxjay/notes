@@ -33,6 +33,7 @@ module Util {
 
     lemma SeqToMultisetAppend<A>(l1: seq<A>, l2: seq<A>)
         ensures SeqToMultiset(l1 + l2) == SeqToMultiset(l1) + SeqToMultiset(l2)
+        ensures false
     {
         if l1 == [] {
         } else {
@@ -61,6 +62,7 @@ module PriorityQueueInternals {
                  Empty, EmptyIsValid, EmptyContents,
                  Insert, InsertIsValid, InsertContents,
                  Pop, PopIsValid, PopContents, PopCorrect
+
 
         provides Relation
 
@@ -845,7 +847,6 @@ module ArrayPQ {
         var data: array<HasTime>
 
         constructor PriorityQueue()
-            modifies this
             ensures Valid()
         {
             data := new HasTime[0];

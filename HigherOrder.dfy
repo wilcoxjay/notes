@@ -2,9 +2,9 @@ lemma Plus_Assoc<A>(xs: seq<A>, ys: seq<A>, zs: seq<A>)
   ensures (xs + ys) + zs == xs + (ys + zs)
 {}
 
-function method Map<A, B>(f: A -> B, l: seq<A>): seq<B>
+function method Map<A, B>(f: A ~> B, l: seq<A>): seq<B>
   reads f.reads
-  requires forall x :: f.requires(x)
+  requires forall x :: x in l ==> f.requires(x)
 {
   if l == [] then
     []
@@ -12,21 +12,21 @@ function method Map<A, B>(f: A -> B, l: seq<A>): seq<B>
     [f(l[0])] + Map(f, l[1..])
 }
 
-lemma MapLength<A, B>(f: A -> B, l: seq<A>)
-  requires forall x :: f.requires(x)
+lemma MapLength<A, B>(f: A ~> B, l: seq<A>)
+  requires forall x :: x in l ==> f.requires(x)
   ensures |Map(f, l)| == |l|
 {}
 
-lemma MapIndex<A, B>(f: A -> B, l: seq<A>)
-  requires forall x :: f.requires(x)
+lemma MapIndex<A, B>(f: A ~> B, l: seq<A>)
+  requires forall x :: x in l ==> f.requires(x)
   ensures forall i :: 0 <= i < |l| ==>
     (MapLength(f, l);
      Map(f, l)[i] == f(l[i]))
 {
 }
 
-lemma Map_Plus<A, B>(f: A -> B, l1: seq<A>, l2: seq<A>)
-  requires forall x :: f.requires(x)
+lemma Map_Plus<A, B>(f: A ~> B, l1: seq<A>, l2: seq<A>)
+  requires forall x :: x in l1 || x in l2 ==> f.requires(x)
   ensures Map(f, l1 + l2) == Map(f, l1) + Map(f, l2)
 {
   if l1 != [] {
@@ -87,3 +87,13 @@ method Main(n: nat)
   SeqExt(l, Seq(1, n));
   assert l == Seq(1, n);
 }
+
+datatype Spec<A> = Spec(init: A -> bool, next: (A, A) -> bool)
+
+predicate BehaviorSatisfiesSpec<A>(b: seq<A>, spec: Spec<A>)
+{
+    && |b| > 0
+    && spec.init(b[0])
+    && forall i :: 0 <= i < |b| - 1 ==> spec.next(b[i], b[i+1])
+}
+
