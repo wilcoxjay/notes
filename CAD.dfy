@@ -192,6 +192,24 @@ lemma UnionUnitTest()
     }
 }
 
+lemma DiffUnitTest()
+    ensures Denote(Difference(Unit, Translate(1.0, Unit))) == Denote(Unit)
+{
+    calc {
+        Denote(Difference(Unit, Translate(1.0, Unit)));
+        Closure(OpenInterval(0.0, 1.0) - Closure(DenoteTranslate(1.0, OpenInterval(0.0, 1.0))));
+        == Closure(OpenInterval(0.0, 1.0) - Closure(OpenInterval(1.0, 2.0)));
+        == { ClosureOpenInterval(1.0, 2.0); }
+           Closure(OpenInterval(0.0, 1.0) - ClosedInterval(1.0, 2.0));
+        == Denote(Unit);
+    }
+}
+
+// Look ma, no proof!
+lemma IntersectUnitTest()
+    ensures Denote(Intersect(Unit, Translate(1.0, Unit))) == Denote(Empty)
+{}
+
 predicate InInterior(x: real, S: iset<real>)
 {
     exists eps | eps > 0.0 :: Ball(x, eps) <= S
