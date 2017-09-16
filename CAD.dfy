@@ -192,9 +192,19 @@ lemma UnionUnitTest()
     }
 }
 
+predicate InInterior(x: real, S: iset<real>)
+{
+    exists eps | eps > 0.0 :: Ball(x, eps) <= S
+}
+
+function Interior(S: iset<real>): iset<real>
+{
+    iset x | InInterior(x, S)
+}
+
 predicate Open(S: iset<real>)
 {
-    forall x | x in S :: exists eps | eps > 0.0 :: Ball(x, eps) <= S
+    forall x | x in S :: InInterior(x, S)
 }
 
 lemma OpenIntervalOpen(a: real, b: real)
@@ -360,3 +370,66 @@ lemma DenoteNoIsolatedPoints(e: Expr)
 
     }
 }
+
+predicate HasNearbyPointInInterior(S: iset<real>, x: real, eps: real)
+{
+    exists x', eps' | eps' > 0.0 :: Ball(x', eps') <= (Ball(x, eps) * S)
+}
+
+predicate NoInfinitelyThinFeatures(S: iset<real>)
+{
+    forall x, eps | x in S && eps > 0.0 ::
+        HasNearbyPointInInterior(S, x, eps)
+}
+
+lemma DenoteNoInfinitelyThinFeatures(e: Expr)
+    ensures NoInfinitelyThinFeatures(Denote(e))
+{
+    var S := Denote(e);
+    forall x, eps | x in S && eps > 0.0
+        ensures HasNearbyPointInInterior(S, x, eps)
+    {
+        assert x in Closure(OpenDenote(e));
+        var x' :| x' in Ball(x, eps) && x' in OpenDenote(e);
+        OpenDenoteOpen(e);
+        var eps' :| eps' > 0.0 && Ball(x', eps') <= OpenDenote(e);
+
+        var eps'' := min(eps', eps - abs(x - x'));
+        assert Ball(x', eps'') <= OpenDenote(e);
+    }
+}
+
+predicate AlternativeNoInfinitelyThinFeatures(S: iset<real>)
+{
+    S <= Closure(Interior(S))
+}
+
+lemma AlternativeNoInfinitelyThinFeaturesEquiv(S: iset<real>)
+    ensures AlternativeNoInfinitelyThinFeatures(S) <==> NoInfinitelyThinFeatures(S)
+{
+    if AlternativeNoInfinitelyThinFeatures(S) {
+        forall x, eps | x in S && eps > 0.0
+            ensures HasNearbyPointInInterior(S, x, eps)
+        {
+            var x' :| x' in Ball(x, eps) && x' in Interior(S);
+            var eps' :| eps' > 0.0 && Ball(x', eps') <= S;
+            var eps'' := min(eps', eps - abs(x - x'));
+            assert Ball(x', eps'') <= Ball(x, eps);
+        }
+    }
+
+    if NoInfinitelyThinFeatures(S) {
+        forall x | x in S
+            ensures x in Closure(Interior(S))
+        {
+            forall eps | eps > 0.0
+                ensures !(Ball(x, eps) !! Interior(S))
+            {
+                assert HasNearbyPointInInterior(S, x, eps);
+                var x', eps' :| eps' > 0.0 && Ball(x', eps') <= (Ball(x, eps) * S);
+                assert x' in Ball(x', eps');
+            }
+        }
+    }
+}
+
