@@ -1,4 +1,4 @@
-// RUN: /compile:0 /rlimit:1000000
+// RUN: /compile:0 /rlimit:2000000
 
 datatype Graph<A> = Graph(nodes: set<A>, edges: set<(A,A)>)
 
@@ -181,8 +181,8 @@ class TopoSort {
             && this !in x.repr
             && x.DAGValid()
             && (forall y | x.PathTo(y) :: y in result)
-        /*requires forall i, j | 0 <= i < j < |result| ::
-            result[j] in result && !result[j].PathTo(result[i])*/
+        requires forall i, j | 0 <= i < j < |result| ::
+            result[j] in result && !result[j].PathTo(result[i])
         decreases n.repr
         modifies this
         ensures forall x | x in old(result) :: x in result
@@ -192,16 +192,16 @@ class TopoSort {
             && this !in x.repr
             && x.DAGValid()
             && (forall y | x.PathTo(y) :: y in result)
-        /*ensures forall i, j | 0 <= i < j < |result| ::
+        ensures forall i, j | 0 <= i < j < |result| ::
             result[j] in result && !result[j].PathTo(result[i])
-        ensures forall x | x in result :: x in old(result) || n.PathTo(x)*/
+        ensures forall x | x in result :: x in old(result) || n.PathTo(x)
     {
         if n in result { return; }
         assert n !in result;
         var S := n.children;
         while S != {}
             decreases S
-//            invariant n !in result
+            invariant n !in result
             invariant forall x | x in old(result) :: x in result
             invariant forall x | x in n.children :: x in S || x in result
             invariant forall x | x in result :: 
@@ -209,9 +209,9 @@ class TopoSort {
                 && this !in x.repr
                 && x.DAGValid()
                 && (forall y | x.PathTo(y) :: y in result)
-            /*invariant forall i, j | 0 <= i < j < |result| ::
+            invariant forall i, j | 0 <= i < j < |result| ::
                 result[j] in result && !result[j].PathTo(result[i])
-            invariant forall x | x in result :: x in old(result) || n.PathTo(x) */
+            invariant forall x | x in result :: x in old(result) || n.PathTo(x)
         {
             var x :| x in S;
             Visit(x);
@@ -221,17 +221,11 @@ class TopoSort {
     }
 }
 
-lemma lemma_IndexInSeq<A>(i: int, s: seq<A>)
-    requires 0 <= i < |s|
-    ensures s[i] in s
-{}
-
-
 method TopoSort(roots: set<Node>) returns (s: seq<Node>)
     requires forall n | n in roots :: n != null && n.DAGValid()
     ensures forall n | n in roots :: forall x | n.PathTo(x) :: x in s
     ensures forall n | n in s :: n != null && n.DAGValid()
-//    ensures forall i, j | 0 <= i < j < |s| :: s[j] in s && !s[j].PathTo(s[i])
+    ensures forall i, j | 0 <= i < j < |s| :: s[j] in s && !s[j].PathTo(s[i])
 {
     var state := new TopoSort;
     state.result := [];
@@ -246,9 +240,9 @@ method TopoSort(roots: set<Node>) returns (s: seq<Node>)
             && state !in x.repr
             && x.DAGValid()
             && (forall y | x.PathTo(y) :: y in state.result)
-/*        invariant forall i, j | 0 <= i < j < |state.result| ::
+        invariant forall i, j | 0 <= i < j < |state.result| ::
             state.result[j] in state.result &&
-            !state.result[j].PathTo(state.result[i])*/
+            !state.result[j].PathTo(state.result[i])
     {
         var n :| n in S;
         state.Visit(n);
