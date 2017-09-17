@@ -260,6 +260,9 @@ lemma ClosureUnion(A: iset<real>, B: iset<real>)
     ensures Closure(A + B) == Closure(A) + Closure(B)
 { }
 
+
+
+
 lemma CloseAdjacentOpenIntervals(a: real, b: real, c: real)
     requires a <= b <= c
     ensures Closure(OpenInterval(a, b) + OpenInterval(b, c)) == Closure(OpenInterval(a, c))
@@ -376,6 +379,10 @@ predicate Closed(S: iset<real>)
 {
     S == Closure(S)
 }
+
+lemma ClosureSubset(S: iset<real>)
+    ensures S <= Closure(S)
+{}
 
 lemma ClosureIdempotent(S: iset<real>)
     ensures Closure(Closure(S)) == Closure(S)
@@ -588,7 +595,7 @@ predicate IsGLB(x: real, S: iset<real>)
 lemma GLBExists(S: iset<real>)
     requires exists x :: IsLB(x, S)
     requires exists x :: x in S
-   ensures exists x :: IsGLB(x, S)
+    ensures exists x :: IsGLB(x, S)
 {
     var x :| x in S;
     var y :| IsLB(y, S);
@@ -655,3 +662,104 @@ function RelPos(r: real, S: iset<real>): real
 
 
 
+predicate Equiv(e1: Expr, e2: Expr)
+{
+    Denote(e1) == Denote(e2)
+}
+
+lemma SelfUnion(e: Expr)
+    ensures Equiv(Union(e, e), e)
+{}
+
+lemma SelfIntersect(e: Expr)
+    ensures Equiv(Intersect(e, e), e)
+{}
+
+lemma SelfDifference(e: Expr)
+    ensures Equiv(Difference(e, e), Empty)
+{}
+
+lemma UnionEmpty(e: Expr)
+    ensures Equiv(Union(e, Empty), e)
+{}
+
+lemma IntersectEmpty(e: Expr)
+    ensures Equiv(Intersect(e, Empty), Empty)
+{}
+
+
+lemma ClosureEmpty()
+    ensures Closure(iset{}) == iset{}
+{
+    forall x | x in Closure(iset{})
+        ensures x in iset{}
+    {
+        var x' :| x' in Ball(x, 1.0) && x' in iset{};
+        assert false;
+    }
+}
+
+lemma DifferenceEmpty1(e: Expr)
+    ensures Equiv(Difference(e, Empty), e)
+{
+    ClosureEmpty();
+}
+
+lemma DifferenceEmpty2(e: Expr)
+    ensures Equiv(Difference(Empty, e), Empty)
+{}
+
+lemma UnionComm(e1: Expr, e2: Expr)
+    ensures Equiv(Union(e1, e2), Union(e2, e1))
+{}
+
+lemma IntersectComm(e1: Expr, e2: Expr)
+    ensures Equiv(Intersect(e1, e2), Intersect(e2, e1))
+{}
+
+lemma UnionAssoc(e1: Expr, e2: Expr, e3: Expr)
+    ensures Equiv(Union(e1, Union(e2, e3)), Union(Union(e1, e2), e3))
+{
+    assert
+        OpenDenote(e1) + (OpenDenote(e2) + OpenDenote(e3)) ==
+        (OpenDenote(e1) + OpenDenote(e2)) + OpenDenote(e3);
+}
+
+lemma IntersectAssoc(e1: Expr, e2: Expr, e3: Expr)
+    ensures Equiv(Intersect(e1, Intersect(e2, e3)), Intersect(Intersect(e1, e2), e3))
+{
+    assert
+        OpenDenote(e1) * (OpenDenote(e2) * OpenDenote(e3)) ==
+        (OpenDenote(e1) * OpenDenote(e2)) * OpenDenote(e3);
+}
+
+lemma IntersectDifference(e1: Expr, e2: Expr)
+    ensures Equiv(Intersect(e1, e2), Difference(e1, Difference(e1, e2)));
+{
+    calc {
+        Denote(Intersect(e1, e2));
+        Closure(OpenDenote(Intersect(e1, e2)));
+        Closure(OpenDenote(e1) * OpenDenote(e2));
+        {
+            assert OpenDenote(e1) * OpenDenote(e2) ==
+                OpenDenote(e1) - Closure(OpenDenote(e1) - Closure(OpenDenote(e2)))
+            by {
+                var S1 := OpenDenote(e1);
+                var S2 := OpenDenote(e2);
+                OpenDenoteOpen(e2);
+                
+                forall x | x in S1 && x in S2
+                    ensures x in S1 - Closure(S1 - Closure(S2))
+                {
+                    var eps :| Ball(x, eps) <= S2;
+                }
+                forall x | x in S1 && x !in Closure(S1 - Closure(S2))
+                    ensures x in S1 * S2
+                {}
+            }
+        }
+        Closure(OpenDenote(e1) - Closure(OpenDenote(e1) - Closure(OpenDenote(e2))));
+        Closure(OpenDenote(Difference(e1, Difference(e1, e2))));
+        Denote(Difference(e1, Difference(e1, e2)));
+    }
+}
