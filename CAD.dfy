@@ -5,7 +5,7 @@ datatype Expr =
     | Unit
     | Translate(r: real, e: Expr)
     | Scale(r: real, e: Expr)
-    /*| Home(r: real, e: Expr)*/  // I don't want to deal with bbox for now
+    | Home(r: real, e: Expr)
     | Intersect(e1: Expr, e2: Expr)
     | Union(e1: Expr, e2: Expr)
     | Difference(e1: Expr, e2: Expr)
@@ -57,18 +57,114 @@ lemma Bad()
 {}
 
 
+lemma EmptyBounded()
+    ensures Bounded(iset{})
+{
+    assert IsLB(0.0, iset{});
+    assert IsUB(0.0, iset{});
+}
+
+lemma OpenIntervalBounded(a: real, b: real)
+    ensures Bounded(OpenInterval(a, b))
+{
+    assert IsLB(a, OpenInterval(a, b));
+    assert IsUB(b, OpenInterval(a, b));
+}
+
+lemma DenoteTranslateBounded(r: real, S: iset<real>)
+    requires Bounded(S)
+    ensures Bounded(DenoteTranslate(r, S))
+{
+    var a :| IsLB(a, S);
+    var b :| IsUB(b, S);
+    assert IsLB(a + r, DenoteTranslate(r, S));
+    assert IsUB(b + r, DenoteTranslate(r, S));
+}
+
+lemma DenoteScaleBounded(r: real, S: iset<real>)
+    requires Bounded(S)
+    ensures Bounded(DenoteScale(r, S))
+{
+    var a :| IsLB(a, S);
+    var b :| IsUB(b, S);
+    if r == 0.0 {
+        EmptyBounded();
+    } else if r > 0.0 {
+        assert IsLB(a * r, DenoteScale(r, S));
+        assert IsUB(b * r, DenoteScale(r, S));
+    } else {
+        assert IsLB(b * r, DenoteScale(r, S));
+        assert IsUB(a * r, DenoteScale(r, S));
+    }
+}
+
+lemma IntersectBounded(A: iset<real>, B: iset<real>)
+    requires Bounded(A)
+    ensures Bounded(A * B)
+{
+    var a :| IsLB(a, A);
+    var b :| IsUB(b, A);
+    assert IsLB(a, A * B);
+    assert IsUB(b, A * B);
+}
+
+lemma UnionBounded(A: iset<real>, B: iset<real>)
+    requires Bounded(A) && Bounded(B)
+    ensures Bounded(A + B)
+{
+    var la :| IsLB(la, A);
+    var ua :| IsUB(ua, A);
+
+    var lb :| IsLB(lb, B);
+    var ub :| IsUB(ub, B);
+
+    assert IsLB(min(la, lb), A + B);
+    assert IsUB(max(ua, ub), A + B);
+}
+
+lemma DifferenceBounded(A: iset<real>, B: iset<real>)
+    requires Bounded(A)
+    ensures Bounded(A - B)
+{
+    assert A - B == A * (R() - B);
+    IntersectBounded(A, R() - B);
+}
+
 // ⦇e⦈
-function OpenDenote(e: Expr): iset<real>
+function OpenDenote(e: Expr): (S: iset<real>)
+    ensures Bounded(S)
 {
     match e
-        case Empty => iset{}
-        case Unit => OpenInterval(0.0, 1.0)
-        case Translate(r,e) => DenoteTranslate(r, OpenDenote(e))
-        case Scale(r,e) => DenoteScale(r, OpenDenote(e))
-        case Intersect(e1,e2) => OpenDenote(e1) * OpenDenote(e2)
-        case Union(e1,e2) => OpenDenote(e1) + OpenDenote(e2)
-        case Difference(e1,e2) => OpenDenote(e1) - Closure(OpenDenote(e2))
+        case Empty =>
+            EmptyBounded();
+            iset{}
+        case Unit =>
+            OpenIntervalBounded(0.0, 1.0);
+            OpenInterval(0.0, 1.0)
+        case Translate(r,e) =>
+            DenoteTranslateBounded(r, OpenDenote(e));
+            DenoteTranslate(r, OpenDenote(e))
+        case Home(r, e) => var S' := OpenDenote(e);
+            if S' == iset{} then
+                EmptyBounded();
+                iset{}
+            else
+                DenoteTranslateBounded(RelPos(r, S'), S');
+                DenoteTranslate(RelPos(r, S'), S')
+        case Scale(r,e) =>
+            DenoteScaleBounded(r, OpenDenote(e));
+            DenoteScale(r, OpenDenote(e))
+        case Intersect(e1,e2) =>
+            IntersectBounded(OpenDenote(e1), OpenDenote(e2));
+            OpenDenote(e1) * OpenDenote(e2)
+        case Union(e1,e2) =>
+            UnionBounded(OpenDenote(e1), OpenDenote(e2));
+            OpenDenote(e1) + OpenDenote(e2)
+        case Difference(e1,e2) =>
+            DifferenceBounded(OpenDenote(e1), Closure(OpenDenote(e2)));
+            OpenDenote(e1) - Closure(OpenDenote(e2))
 }
+
 
 function abs(r: real): real
 {
@@ -352,9 +448,13 @@ lemma OpenDenoteOpen(e: Expr)
     ensures Open(OpenDenote(e))
 {
     match e {
-        case Empty => {}
-        case Unit => { OpenIntervalOpen(0.0, 1.0); }
-        case Translate(r, e) => { DenoteTranslateOpen(r, OpenDenote(e)); }
+        case Empty =>
+        case Unit => OpenIntervalOpen(0.0, 1.0);
+        case Translate(r, e) => DenoteTranslateOpen(r, OpenDenote(e));
+        case Home(r, e) => var S := OpenDenote(e);
+            if S != iset{} {
+                DenoteTranslateOpen(RelPos(r, S), S);
+            }
         case Scale(r, e) => { DenoteScaleOpen(r, OpenDenote(e)); }
         case Intersect(e1, e2) => {}
         case Union(e1, e2) => {}
@@ -450,4 +550,108 @@ lemma AlternativeNoInfinitelyThinFeaturesEquiv(S: iset<real>)
         }
     }
 }
+
+predicate IsUB(x: real, S: iset<real>)
+{
+    forall y | y in S :: y <= x
+}
+
+predicate IsLUB(x: real, S: iset<real>)
+{
+    IsUB(x, S) && forall x' | IsUB(x', S) :: x <= x'
+}
+
+lemma {:axiom} LUBExists(S: iset<real>)
+    requires exists x :: x in S
+    requires exists x :: IsUB(x, S)
+    ensures exists x :: IsLUB(x, S)
+
+function LUB(S: iset<real>): real
+    requires exists x :: x in S
+    requires exists x :: IsUB(x, S)
+{
+    LUBExists(S);
+    var x :| IsLUB(x, S);
+    x
+}
+
+predicate IsLB(x: real, S: iset<real>)
+{
+    forall y | y in S :: x <= y
+}
+
+predicate IsGLB(x: real, S: iset<real>)
+{
+    IsLB(x, S) && forall x' | IsLB(x', S) :: x' <= x
+}
+
+lemma GLBExists(S: iset<real>)
+    requires exists x :: IsLB(x, S)
+    requires exists x :: x in S
+   ensures exists x :: IsGLB(x, S)
+{
+    var x :| x in S;
+    var y :| IsLB(y, S);
+    var LBs := iset x | IsLB(x, S);
+    assert IsUB(x, LBs);
+    assert y in LBs;
+    LUBExists(LBs);
+    var x' :| IsLUB(x', LBs);
+    assert IsUB(x', LBs);
+
+    forall y | IsLB(y, S)
+        ensures y <= x'
+    {
+        assert y in LBs;
+    }
+    forall y | y in S
+        ensures x' <= y
+    {
+        if y < x' {
+            assert IsUB(y, LBs);
+            assert false;
+        }
+    }
+    assert IsGLB(x', S);
+}
+
+
+function GLB(S: iset<real>): real
+    requires exists x :: x in S
+    requires exists x :: IsLB(x, S)
+{
+    GLBExists(S);
+    var x :| IsGLB(x, S);
+    x
+}
+
+predicate Bounded(S: iset<real>)
+{
+    && (exists x :: IsLB(x, S))
+    && (exists x :: IsUB(x, S))
+}
+
+predicate NonEmpty(S: iset<real>)
+{
+    exists x :: x in S
+}
+
+function BBox(S: iset<real>): (real, real)
+    requires NonEmpty(S) && Bounded(S)
+{
+    GLBExists(S);
+    LUBExists(S);
+    var a :| IsGLB(a, S);
+    var b :| IsLUB(b, S);
+    (a, b)
+}
+
+function RelPos(r: real, S: iset<real>): real
+    requires NonEmpty(S) && Bounded(S)
+{
+    var (a, b) := BBox(S);
+    a + r * (b - a)
+}
+
+
 
