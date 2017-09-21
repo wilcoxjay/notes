@@ -251,7 +251,29 @@ module RealModule {
     {
         forall x | x in S :: InInterior(x, S)
     }
-    
+
+    lemma InteriorSubset(S: iset<real>)
+        ensures Interior(S) <= S
+    {}
+
+
+    lemma InteriorOpen(S: iset<real>)
+        ensures Open(Interior(S))
+    {
+        forall x | x in Interior(S)
+            ensures InInterior(x, Interior(S))
+        {
+            var eps :| eps > 0.0 && Ball(x, eps) <= S;
+            forall y | y in Ball(x, eps)
+                ensures y in Interior(S)
+            {
+                var eps' := eps - abs(x - y);
+                assert Ball(y, eps') <= S;
+            }
+        }
+    }
+
+
     lemma OpenIntervalOpen(a: real, b: real)
         requires a < b
         ensures Open(OpenInterval(a, b))
@@ -377,6 +399,274 @@ module RealModule {
         ComplementClosedOpen(Closure(S2));
         IntersectOpen(S1, R() - Closure(S2));
     }
+
+    predicate RegularOpen(S: iset<real>)
+    {
+        S == Interior(Closure(S))
+    }
+
+    function RegularJoin(A: iset<real>, B: iset<real>): iset<real>
+    {
+        Interior(Closure(A + B))
+    }
+
+    lemma InteriorMonotonic(A: iset<real>, B: iset<real>)
+        requires A <= B
+        ensures Interior(A) <= Interior(B)
+    {}
+
+    lemma InteriorIdempotent(S: iset<real>)
+        ensures Interior(Interior(S)) == Interior(S)
+    {
+        InteriorSubset(Interior(S));
+
+        forall x | x in Interior(S)
+            ensures x in Interior(Interior(S))
+        {
+            var eps :| eps > 0.0 && Ball(x, eps) <= S;
+            forall y | y in Ball(x, eps)
+                ensures y in Interior(S)
+            {
+                var eps' := eps - abs(x - y);
+                assert Ball(y, eps') <= S;
+            }
+        }
+    }
+
+    lemma ClosureMonotonic(A: iset<real>, B: iset<real>)
+        requires A <= B
+        ensures Closure(A) <= Closure(B)
+    {}
+
+
+    lemma InteriorClosureInteriorClosure(S: iset<real>)
+        ensures Interior(Closure(Interior(Closure(S)))) == Interior(Closure(S))
+    {
+        calc ==> {
+            true;
+            { ClosureSubset(Interior(Closure(S))); }
+            Interior(Closure(S)) <= Closure(Interior(Closure(S)));
+            { InteriorMonotonic(Interior(Closure(S)), Closure(Interior(Closure(S)))); }
+            Interior(Interior(Closure(S))) <= Interior(Closure(Interior(Closure(S))));
+            { InteriorIdempotent(Closure(S)); }
+            Interior(Closure(S)) <= Interior(Closure(Interior(Closure(S))));
+        }
+
+        calc ==> {
+            true;
+            { InteriorSubset(Closure(S)); }
+            Interior(Closure(S)) <= Closure(S);
+            { ClosureMonotonic(Interior(Closure(S)), Closure(S)); }
+            Closure(Interior(Closure(S))) <= Closure(Closure(S));
+            { ClosureIdempotent(S); }
+            Closure(Interior(Closure(S))) <= Closure(S);
+            { InteriorMonotonic(Closure(Interior(Closure(S))), Closure(S)); }
+            Interior(Closure(Interior(Closure(S)))) <= Interior(Closure(S));
+        }
+    }
+
+    lemma InteriorClosureRegularOpen(S: iset<real>)
+        ensures RegularOpen(Interior(Closure(S)))
+    {
+        InteriorClosureInteriorClosure(S);
+    }
+
+    lemma RegularJoinRegularOpen(A: iset<real>, B: iset<real>)
+        requires RegularOpen(A) && RegularOpen(B)
+        ensures RegularOpen(RegularJoin(A, B))
+    {
+        InteriorClosureRegularOpen(A + B);
+    }
+
+    lemma RegularOpenBallInClosure(A: iset<real>, x: real, eps: real)
+        requires eps > 0.0 && RegularOpen(A) && Ball(x, eps) <= Closure(A)
+        ensures Ball(x, eps) <= A
+    {
+        forall y | y in Ball(x, eps)
+            ensures y in Interior(Closure(A))
+        {
+            var eps' := eps - abs(x - y);
+            assert Ball(y, eps') <= Closure(A);
+        }
+    }
+
+
+    lemma IntersectRegularOpen(A: iset<real>, B: iset<real>)
+        requires RegularOpen(A) && RegularOpen(B)
+        ensures RegularOpen(A * B)
+    {
+        forall x | x in A && x in B
+            ensures x in Interior(Closure(A * B))
+        {
+            var eps_A :| eps_A > 0.0 && Ball(x, eps_A) <= Closure(A);
+            var eps_B :| eps_B > 0.0 && Ball(x, eps_B) <= Closure(B);
+            RegularOpenBallInClosure(A, x, eps_A);
+            RegularOpenBallInClosure(B, x, eps_B);
+            assert Ball(x, min(eps_A, eps_B)) <= A * B;
+        }
+    }
+
+    lemma DifferenceRegularOpen(A: iset<real>, B: iset<real>)
+        requires RegularOpen(A) && RegularOpen(B)
+        ensures RegularOpen(A - Closure(B))
+    {
+        assert A - Closure(B) == A * (R() - Closure(B));
+        IntersectRegularOpen(A, R() - Closure(B));
+    }
+
+    lemma EstablishRegularOpen(S: iset<real>)
+        requires Open(S) && Interior(Closure(S)) <= S
+        ensures RegularOpen(S)
+    {}
+
+    lemma RegularOpenOpen(S: iset<real>)
+        requires RegularOpen(S)
+        ensures Open(S)
+    {
+        InteriorOpen(Closure(S));
+    }
+
+    lemma ClosureTranslateSet(r: real, S: iset<real>)
+        ensures Closure(TranslateSet(r, S)) == TranslateSet(r, Closure(S))
+    {
+        forall x
+            ensures x in Closure(TranslateSet(r, S)) <==> x in TranslateSet(r, Closure(S))
+        {
+            var y := x - r;
+            calc <==> {
+                x in Closure(TranslateSet(r, S));
+                forall eps | eps > 0.0 :: !(Ball(x, eps) !! TranslateSet(r, S));
+                {
+                    forall eps | eps > 0.0
+                        ensures !(Ball(x, eps) !! TranslateSet(r, S)) <==> !(Ball(y, eps) !! S)
+                    {
+                        if !(Ball(y, eps) !! S) {
+                            var z :| z in Ball(y, eps) && z in S;
+                            assert z + r in Ball(x, eps) && z + r in TranslateSet(r, S);
+                        }
+                    }
+                }
+                forall eps | eps > 0.0 :: !(Ball(y, eps) !! S);
+                x in TranslateSet(r, Closure(S));
+            }
+        }
+    }
+
+    lemma BallInTranslateSet(x: real, eps: real, r: real, S: iset<real>)
+        requires Ball(x, eps) <= TranslateSet(r, S)
+        ensures Ball(x - r, eps) <= S
+    {
+        forall y | y in Ball(x - r, eps)
+            ensures y in S
+        {
+            assert y + r in Ball(x, eps);
+        }
+    }
+
+    lemma TranslateSetRegularOpen(r: real, S: iset<real>)
+        requires RegularOpen(S)
+        ensures RegularOpen(TranslateSet(r, S))
+    {
+        RegularOpenOpen(S);
+        TranslateSetOpen(r, S);
+        forall x | x in Interior(Closure(TranslateSet(r, S)))
+            ensures x in TranslateSet(r, S)
+        {
+            var eps :| eps > 0.0 && Ball(x, eps) <= Closure(TranslateSet(r, S));
+            ClosureTranslateSet(r, S);
+            BallInTranslateSet(x, eps, r, Closure(S));
+        }
+        EstablishRegularOpen(TranslateSet(r, S));
+    }
+
+    lemma ScaleBall(x: real, y: real, r: real, eps: real)
+        requires r != 0.0 && y in Ball(x, eps)
+        ensures y * r in Ball(x * r, eps * abs(r))
+    { }
+
+
+    lemma ClosureScaleSet(r: real, S: iset<real>)
+        requires r != 0.0
+        ensures Closure(ScaleSet(r, S)) == ScaleSet(r, Closure(S))
+    {
+        forall x
+            ensures x in Closure(ScaleSet(r, S)) <==> x in ScaleSet(r, Closure(S))
+        {
+            var y := x / r;
+            calc <==> {
+                x in Closure(ScaleSet(r, S));
+                forall eps | eps > 0.0 :: !(Ball(x, eps) !! ScaleSet(r, S));
+                {
+                    if forall eps | eps > 0.0 :: !(Ball(x, eps) !! ScaleSet(r, S)) {
+                        forall eps | eps > 0.0
+                            ensures !(Ball(y, eps) !! S)
+                        {
+                            assert !(Ball(x, eps * abs(r)) !! ScaleSet(r, S));
+                        }
+                    }
+                    if forall eps | eps > 0.0 :: !(Ball(y, eps) !! S) {
+                        forall eps | eps > 0.0
+                            ensures !(Ball(x, eps) !! ScaleSet(r, S))
+                        {
+                            assert !(Ball(y, eps / abs(r)) !! S);
+                            var z :| z in Ball(y, eps / abs(r)) && z in S;
+                            var w := z * r;
+                            calc ==> {
+                                z in Ball(y, eps / abs(r));
+                                { ScaleBall(y, z, r, eps / abs(r)); }
+                                z * r in Ball(y * r, eps);
+                                abs(x - w) < eps;
+                            }
+                            calc ==> {
+                                z in S;
+                                { assert (z * r) / r == z; }
+                                z * r in ScaleSet(r, S);
+                            }
+                            assert w in Ball(x, eps) && w in ScaleSet(r, S);
+                        }
+                    }
+                }
+                forall eps | eps > 0.0 :: !(Ball(y, eps) !! S);
+                x in ScaleSet(r, Closure(S));
+            }
+        }
+    }
+
+    lemma BallInScaleSet(x: real, eps: real, r: real, S: iset<real>)
+        requires Ball(x, eps) <= ScaleSet(r, S) && r != 0.0
+        ensures Ball(x / r, eps / abs(r)) <= S
+    {
+        forall y | y in Ball(x / r, eps / abs(r))
+            ensures y in S
+        {
+            calc ==> {
+                y in Ball(x / r, eps / abs(r));
+                { ScaleBall(x / r, y, r, eps / abs(r)); }
+                y * r in Ball(x, eps);
+                y * r in ScaleSet(r, S);
+                { assert (y * r) / r == y; }
+                y in S;
+            }
+        }
+    }
+
+
+    lemma ScaleSetRegularOpen(r: real, S: iset<real>)
+        requires RegularOpen(S)
+        ensures RegularOpen(ScaleSet(r, S))
+    {
+        if r == 0.0 { ClosureEmpty(); return; }
+        RegularOpenOpen(S);
+        ScaleSetOpen(r, S);
+        forall x | x in Interior(Closure(ScaleSet(r, S)))
+            ensures x in ScaleSet(r, S)
+        {
+            var eps :| eps > 0.0 && Ball(x, eps) <= Closure(ScaleSet(r, S));
+            ClosureScaleSet(r, S);
+            BallInScaleSet(x, eps, r, Closure(S));
+        }
+        EstablishRegularOpen(ScaleSet(r, S));
+    }
 }
 
 module BoundedModule {
@@ -423,6 +713,9 @@ module BoundedModule {
             EmptyBounded();
         } else if r > 0.0 {
             assert IsLB(a * r, ScaleSet(r, S));
+            forall y | y in ScaleSet(r, S)
+                ensures y <= b * r
+            {}
             assert IsUB(b * r, ScaleSet(r, S));
         } else {
             assert IsLB(b * r, ScaleSet(r, S));
