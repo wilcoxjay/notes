@@ -84,7 +84,22 @@ module RealModule {
     {
         IsUB(x, S) && forall x' | IsUB(x', S) :: x <= x'
     }
-    
+
+    predicate LEModuloEpsilon(x: real, y: real, eps: real)
+    {
+        x <= y + eps
+    }
+
+    lemma EstablishLE(x: real, y: real)
+        requires forall eps | eps > 0.0 :: LEModuloEpsilon(x, y, eps)
+        ensures x <= y
+    {
+        if x > y {
+            var eps := x - y;
+            assert LEModuloEpsilon(x, y, eps / 2.0);
+        }
+    }
+
     lemma {:axiom} LUBExists(S: iset<real>)
         requires exists x :: x in S
         requires exists x :: IsUB(x, S)
@@ -753,6 +768,66 @@ module BoundedModule {
     {
         assert A - B == A * (R() - B);
         IntersectBounded(A, R() - B);
+    }
+
+    lemma BoundedSubset(A: iset<real>, B: iset<real>)
+        requires A <= B && Bounded(B)
+        ensures Bounded(A)
+    {
+        var l :| IsLB(l, B);
+        var u :| IsUB(u, B);
+
+        assert IsLB(l, A);
+        assert IsUB(u, A);
+    }
+
+    lemma InteriorBounded(S: iset<real>)
+        requires Bounded(S)
+        ensures Bounded(Interior(S))
+    {
+        InteriorSubset(S);
+        BoundedSubset(Interior(S), S);
+    }
+
+    lemma ClosureBounded(S: iset<real>)
+        requires Bounded(S)
+        ensures Bounded(Closure(S))
+    {
+        var l :| IsLB(l, S);
+        var u :| IsUB(u, S);
+
+        forall x | x in Closure(S)
+            ensures l <= x && x <= u
+        {
+            forall eps | eps > 0.0
+                ensures LEModuloEpsilon(l, x, eps)
+            {
+                assert !(Ball(x, eps) !! S);
+                var y :| y in S && y in Ball(x, eps);
+                assert l <= y;
+            }
+            EstablishLE(l, x);
+
+            forall eps | eps > 0.0
+                ensures LEModuloEpsilon(x, u, eps)
+            {
+                assert !(Ball(x, eps) !! S);
+                var y :| y in S && y in Ball(x, eps);
+                assert y <= u;
+            }
+            EstablishLE(x, u);
+        }
+        assert IsLB(l, Closure(S));
+        assert IsUB(u, Closure(S));
+    }
+
+    lemma RegularJoinBounded(A: iset<real>, B: iset<real>)
+        requires Bounded(A) && Bounded(B)
+        ensures Bounded(RegularJoin(A, B))
+    {
+        UnionBounded(A, B);
+        ClosureBounded(A + B);
+        InteriorBounded(Closure(A + B));
     }
 
     function BBox(S: iset<real>): (real, real)
