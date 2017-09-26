@@ -1,4 +1,4 @@
-// RUN: /compile:0 /rlimit:500000
+// RUN: /compile:0 /rlimit:500000 /vcsCores:4
 
 module PreludeModule {
     function abs(r: real): real
@@ -28,6 +28,22 @@ module PreludeModule {
         requires x in S
         ensures S != iset{}
     {}
+
+    lemma EmptySubtractSubset<T>(A: iset<T>, B: iset<T>)
+        ensures A - B == iset{} <==> A <= B
+    {
+        if A - B == iset{} {
+            forall x | x in A
+                ensures x in B
+            {
+                if x !in B {
+                    assert x in A - B;
+                    ISetNonEmpty(x, A - B);
+                    assert false;
+                }
+            }
+        }
+    }
 }
 
 module RealModule {
@@ -209,7 +225,7 @@ module RealModule {
             ensures x in Closure(OpenInterval(a, b))
         {
             forall eps | eps > 0.0
-                ensures Ball(x, eps) * OpenInterval(a, b) != iset{}
+                ensures !(Ball(x, eps) !! OpenInterval(a, b))
             {
                 if x == a {
                     var d := min(eps, b - a) / 2.0;
@@ -222,6 +238,26 @@ module RealModule {
                     ISetNonEmpty(x, Ball(x, eps) * OpenInterval(a, b));
                 }
             }
+        }
+    }
+
+    lemma InteriorClosedInterval(a: real, b: real)
+        ensures Interior(ClosedInterval(a, b)) == OpenInterval(a, b)
+    {
+        forall x | x in Interior(ClosedInterval(a, b))
+            ensures x in OpenInterval(a, b)
+        {
+            var eps :| eps > 0.0 && Ball(x, eps) <= ClosedInterval(a, b);
+            assert x - eps / 2.0 in Ball(x, eps);
+            assert x + eps / 2.0 in Ball(x, eps);
+            assert a <= x - eps / 2.0 < x < x + eps / 2.0 <= b;
+        }
+
+        forall x | x in OpenInterval(a, b)
+            ensures x in Interior(ClosedInterval(a, b))
+        {
+            var eps := min(x - a, b - x);
+            assert Ball(x, eps) <= ClosedInterval(a, b);
         }
     }
     
@@ -415,14 +451,297 @@ module RealModule {
         IntersectOpen(S1, R() - Closure(S2));
     }
 
+    predicate Regular(S: iset<real>)
+    {
+        Interior(Closure(S)) <= S <= Closure(Interior(S))
+    }
+
+    predicate Regularizable(S: iset<real>)
+    {
+        Interior(Closure(S)) <= Closure(Interior(S))
+    }
+
+    lemma OpenInteriorNop(S: iset<real>)
+        requires Open(S)
+        ensures Interior(S) == S
+    {}
+
+    lemma RegularOpenRegular(S: iset<real>)
+        requires RegularOpen(S)
+        ensures Regular(S)
+    {
+        RegularOpenOpen(S);
+        OpenInteriorNop(S);
+        ClosureSubset(S);
+    }
+
+    lemma RegularOpenIffRegularAndOpen(S: iset<real>)
+        ensures RegularOpen(S) <==> Regular(S) && Open(S)
+    {
+        if RegularOpen(S) {
+            RegularOpenOpen(S);
+            RegularOpenRegular(S);
+            assert Regular(S) && Open(S);
+        }
+    }
+
+
     predicate RegularOpen(S: iset<real>)
     {
         S == Interior(Closure(S))
     }
 
+    lemma RegularOpenEmpty()
+        ensures RegularOpen(iset{})
+    {
+        ClosureEmpty();
+    }
+
     function RegularJoin(A: iset<real>, B: iset<real>): iset<real>
     {
         Interior(Closure(A + B))
+    }
+
+    predicate RegularEquiv(A: iset<real>, B: iset<real>)
+    {
+        Interior(Closure(A)) == Interior(Closure(B))
+    }
+
+    predicate RegularApprox(A: iset<real>, B: iset<real>)
+    {
+        Interior(Closure(A)) <= Interior(Closure(B))
+    }
+
+    lemma RegularizableBall(S: iset<real>, x: real, eps: real) returns (x': real, eps': real)
+        requires eps > 0.0 && Regularizable(S) && Ball(x, eps) <= Closure(S)
+        ensures eps' > 0.0 && Ball(x', eps') <= Ball(x, eps) * S
+    {
+        assert Interior(Closure(S)) <= Closure(Interior(S));
+        assert x in Ball(x, eps) && x in Interior(Closure(S));
+        assert !(Ball(x, eps) !! Interior(S));
+        x' :| x' in Ball(x, eps) && x' in Interior(S);
+        eps' :| eps' > 0.0 && Ball(x', eps') <= S;
+        eps' := min(eps', eps - abs(x - x'));
+    }
+
+    predicate NowhereDense(S: iset<real>)
+    {
+        Interior(Closure(S)) == iset{}
+    }
+
+    function Boundary(S: iset<real>): iset<real>
+    {
+        Closure(S) - Interior(S)
+    }
+
+    lemma ComplementOpenClosed(S: iset<real>)
+        requires Open(S)
+        ensures Closed(R() - S)
+    {}
+
+    lemma IntersectClosed(A: iset<real>, B: iset<real>)
+        requires Closed(A) && Closed(B)
+        ensures Closed(A * B)
+    {}
+
+    lemma BoundaryClosed(S: iset<real>)
+        ensures Closed(Boundary(S))
+    {
+        assert Boundary(S) == Closure(S) * (R() - Interior(S));
+        InteriorOpen(S);
+        ComplementOpenClosed(Interior(S));
+        ClosureClosed(S);
+        IntersectClosed(Closure(S), R() - Interior(S));
+    }
+
+    lemma RegularizableIffNowhereDenseBoundary(S: iset<real>)
+        ensures Regularizable(S) <==> NowhereDense(Boundary(S))
+    {
+        calc <==> {
+            Regularizable(S);
+            Interior(Closure(S)) <= Closure(Interior(S));
+            { EmptySubtractSubset(Interior(Closure(S)), Closure(Interior(S))); }
+            Interior(Closure(S)) - Closure(Interior(S)) == iset{};
+            Interior(Closure(S) * (R() - Interior(S))) == iset{};
+            Interior(Closure(S) - Interior(S)) == iset{};
+            Interior(Boundary(S)) == iset{};
+            { BoundaryClosed(S); }
+            Interior(Closure(Boundary(S))) == iset{};
+            NowhereDense(Boundary(S));
+        }
+    }
+
+    lemma BoundaryUnionSubset(A: iset<real>, B: iset<real>)
+        ensures Boundary(A + B) <= Boundary(A) + Boundary(B)
+    {}
+
+    lemma NowhereDenseSubset(A: iset<real>, B: iset<real>)
+        requires A <= B && NowhereDense(B)
+        ensures NowhereDense(A)
+    {}
+
+    lemma NowhereDenseAlternative(S: iset<real>)
+        ensures NowhereDense(S) <==> forall x, eps | eps > 0.0 :: !(Ball(x, eps) !! (R() - Closure(S)))
+    {
+        if NowhereDense(S) {
+            forall x, eps | eps > 0.0
+                ensures Ball(x, eps) - Closure(S) != iset{}
+            {
+                if  Ball(x, eps) - Closure(S) == iset{} {
+                    assert x in Ball(x, eps);
+                    EmptySubtractSubset(Ball(x, eps), Closure(S));
+                    assert Ball(x, eps) <= Closure(S);
+                    ISetNonEmpty(x, Interior(Closure(S)));
+                    assert false;
+                }
+            }
+
+            assert forall x, eps | eps > 0.0 :: Ball(x, eps) - Closure(S) != iset{};
+        }
+
+        if forall x, eps | eps > 0.0 :: Ball(x, eps) - Closure(S) != iset{} {
+            if Interior(Closure(S)) != iset{} {
+                var x :| x in Interior(Closure(S));
+                var eps :| eps > 0.0 && Ball(x, eps) <= Closure(S);
+                assert false;
+            }
+
+            assert NowhereDense(S);
+        }
+    }
+
+
+    lemma NowhereDenseUnion(A: iset<real>, B: iset<real>)
+        requires NowhereDense(A) && NowhereDense(B)
+        ensures NowhereDense(A + B)
+    {
+        forall x, eps | eps > 0.0
+            ensures !(Ball(x, eps) !! (R() - Closure(A + B)))
+        {
+            assert !(Ball(x, eps) !! (R() - Closure(A))) by {
+                NowhereDenseAlternative(A);
+            }
+            var y :| y in Ball(x, eps) && y !in Closure(A);
+            var eps' :| eps' > 0.0 && Ball(y, eps') !! A;
+            var eps'' := min(eps', eps - abs(x - y));
+            assert !(Ball(y, eps'') !! (R() - Closure(B))) by {
+                NowhereDenseAlternative(B);
+            }
+            var z :| z in Ball(y, eps'') && z !in Closure(B);
+            var eps''' := eps'' - abs(z - y);
+            assert z in Ball(z, eps''') && Ball(z, eps''') <= Ball(y, eps'');
+            assert z !in Closure(A);
+            assert z in Ball(x, eps);
+            assert z !in Closure(A + B);
+        }
+    }
+
+    lemma NowhereDenseBoundaryUnion(A: iset<real>, B: iset<real>)
+        requires NowhereDense(Boundary(A)) && NowhereDense(Boundary(B))
+        ensures NowhereDense(Boundary(A + B))
+    {
+        BoundaryUnionSubset(A, B);
+        NowhereDenseUnion(Boundary(A), Boundary(B));
+        NowhereDenseSubset(Boundary(A + B), Boundary(A) + Boundary(B));
+    }
+
+    lemma InteriorUnion(A: iset<real>, B: iset<real>)
+        ensures Interior(A) + Interior(B) <= Interior(A + B)
+    {}
+
+    lemma RegularizableUnion(A: iset<real>, B: iset<real>)
+        requires Regularizable(A) && Regularizable(B)
+        ensures Regularizable(A + B)
+    {
+        forall S
+            ensures Regularizable(S) <==> NowhereDense(Boundary(S))
+        {
+            RegularizableIffNowhereDenseBoundary(S);
+        }
+        NowhereDenseBoundaryUnion(A, B);
+
+    }
+
+    lemma RegularApproxUnion(A: iset<real>, B: iset<real>, A': iset<real>)
+        requires RegularApprox(A, A')
+        requires true
+        ensures RegularApprox(A + B, A' + B)
+    {
+        forall x {:nowarn} | x in Interior(Closure(A + B))
+            ensures x in Interior(Closure(A' + B))
+        {
+            calc ==> {
+                x in Interior(Closure(A + B));
+                exists eps :: eps > 0.0 && Ball(x, eps) <= Closure(A + B);
+                {
+                    var eps :| eps > 0.0 && Ball(x, eps) <= Closure(A + B);
+                    forall y | y in Ball(x, eps)
+                        ensures y in Closure(A' + B)
+                    {
+                        forall eps' | eps' > 0.0
+                            ensures !(Ball(y, eps') !! (A' + B))
+                        {
+                            assert !(Ball(y, eps') !! (A + B));
+                            var z :| z in Ball(y, eps') && z in A + B;
+                            if z in A {
+                                var eps'' :| eps'' > 0.0 && Ball(z, eps'') <= A;
+                                assert z in Interior(A) && z in Interior(Closure(A));
+                                assert z in Interior(Closure(A'));
+                                var eps''' :| eps''' > 0.0 && Ball(z, eps''') <= Closure(A');
+                                var eps'''' := min(eps''', eps' - abs(z - y));
+                                assert z in Ball(z, eps''');
+                                assert !(Ball(z, eps'''') !! A');
+                                assert !(Ball(y, eps') !! (A' + B));
+                            } else {
+                                assert z in B;
+                                assert !(Ball(y, eps') !! (A' + B));
+                            }
+                        }
+                    }
+                }
+                exists eps :: eps > 0.0 && Ball(x, eps) <= Closure(A' + B);
+                x in Interior(Closure(A' + B));
+            }
+        }
+    }
+
+    lemma RegularEquivUnion(A: iset<real>, B: iset<real>, A': iset<real>)
+        requires RegularEquiv(A, A') && Regularizable(A) && Regularizable(A')
+        ensures RegularEquiv(A + B, A' + B)
+    {
+        RegularApproxUnion(A, B, A');
+        RegularApproxUnion(A', B, A);
+    }
+
+    lemma RegularEquivRegularJoin(A: iset<real>, B: iset<real>)
+        ensures RegularEquiv(RegularJoin(A, B), A + B)
+    {
+    }
+
+    lemma RegularJoinAssoc(A: iset<real>, B: iset<real>, C: iset<real>)
+        ensures RegularJoin(RegularJoin(A, B), C) == RegularJoin(A, RegularJoin(B, C))
+    {
+        forall x
+            ensures x in RegularJoin(RegularJoin(A, B), C) <==>
+                    x in RegularJoin(A, RegularJoin(B, C))
+        {
+            calc <==> {
+                x in RegularJoin(RegularJoin(A, B), C);
+                x in Interior(Closure(RegularJoin(A, B) + C));
+                { RegularEquivRegularJoin(A, B);
+                  RegularEquivUnion(RegularJoin(A, B), C, A + B); }
+                x in Interior(Closure(A + B + C));
+                { assert A + B + C == (B + C) + A; }
+                x in Interior(Closure((B + C) + A));
+                { RegularEquivRegularJoin(B, C);
+                  RegularEquivUnion(RegularJoin(B, C), A, B + C); }
+                x in Interior(Closure(RegularJoin(B, C) + A));
+                { assert RegularJoin(B, C) + A == A + RegularJoin(B, C); }
+                x in Interior(Closure(A + RegularJoin(B, C)));
+                x in RegularJoin(A, RegularJoin(B, C));
+            }
+        }
+
     }
 
     lemma InteriorMonotonic(A: iset<real>, B: iset<real>)
@@ -484,6 +803,18 @@ module RealModule {
         ensures RegularOpen(Interior(Closure(S)))
     {
         InteriorClosureInteriorClosure(S);
+    }
+
+    lemma OpenIntervalRegularOpen(a: real, b: real)
+        ensures RegularOpen(OpenInterval(a, b))
+    {
+        if b <= a {
+            RegularOpenEmpty();
+            assert OpenInterval(a, b) == iset{};
+            return;
+        }
+        ClosureOpenInterval(a, b);
+        InteriorClosedInterval(a, b);
     }
 
     lemma RegularJoinRegularOpen(A: iset<real>, B: iset<real>)
@@ -597,7 +928,9 @@ module RealModule {
     lemma ScaleBall(x: real, y: real, r: real, eps: real)
         requires r != 0.0 && y in Ball(x, eps)
         ensures y * r in Ball(x * r, eps * abs(r))
-    { }
+    {
+        assert InBall(x * r, eps * abs(r), y * r);
+    }
 
 
     lemma ClosureScaleSet(r: real, S: iset<real>)
@@ -871,7 +1204,7 @@ module CADModule {
     {}
 
     // ⦇e⦈
-    function OpenDenote(e: Expr): (S: iset<real>)
+    function Denote(e: Expr): (S: iset<real>)
         ensures Bounded(S)
     {
         match e
@@ -882,44 +1215,40 @@ module CADModule {
                 OpenIntervalBounded(0.0, 1.0);
                 OpenInterval(0.0, 1.0)
             case Translate(r,e) =>
-                TranslateSetBounded(r, OpenDenote(e));
-                TranslateSet(r, OpenDenote(e))
-            case Home(r, e) => var S' := OpenDenote(e);
+                TranslateSetBounded(r, Denote(e));
+                TranslateSet(r, Denote(e))
+            case Home(r, e) => var S' := Denote(e);
                 TranslateSetBounded(-RelPos(r, S'), S');
                 TranslateSet(-RelPos(r, S'), S')
             case Scale(r,e) =>
-                ScaleSetBounded(r, OpenDenote(e));
-                ScaleSet(r, OpenDenote(e))
+                ScaleSetBounded(r, Denote(e));
+                ScaleSet(r, Denote(e))
             case Intersect(e1,e2) =>
-                IntersectBounded(OpenDenote(e1), OpenDenote(e2));
-                OpenDenote(e1) * OpenDenote(e2)
+                IntersectBounded(Denote(e1), Denote(e2));
+                Denote(e1) * Denote(e2)
             case Union(e1,e2) =>
-                UnionBounded(OpenDenote(e1), OpenDenote(e2));
-                OpenDenote(e1) + OpenDenote(e2)
+                RegularJoinBounded(Denote(e1), Denote(e2));
+                RegularJoin(Denote(e1), Denote(e2))
             case Difference(e1,e2) =>
-                DifferenceBounded(OpenDenote(e1), Closure(OpenDenote(e2)));
-                OpenDenote(e1) - Closure(OpenDenote(e2))
+                DifferenceBounded(Denote(e1), Closure(Denote(e2)));
+                Denote(e1) - Closure(Denote(e2))
     }
 
-    // ⟦e⟧
-    function Denote(e: Expr): iset<real>
-    {
-        Closure(OpenDenote(e))
-    }
 
     lemma UnionUnitTest()
         ensures Denote(Union(Unit, Translate(1.0, Unit))) == Denote(Scale(2.0, Unit))
     {
         calc {
             Denote(Union(Unit, Translate(1.0, Unit)));
-            == Closure(OpenDenote(Union(Unit, Translate(1.0, Unit))));
-            == Closure(OpenInterval(0.0, 1.0) + TranslateSet(1.0, OpenInterval(0.0, 1.0)));
-            == Closure(OpenInterval(0.0, 1.0) + OpenInterval(1.0, 2.0));
-            == { CloseAdjacentOpenIntervals(0.0, 1.0, 2.0); }
-               Closure(OpenInterval(0.0, 2.0));
-            == Closure(ScaleSet(2.0, OpenInterval(0.0, 1.0)));
-            == Closure(OpenDenote(Scale(2.0, Unit)));
-            == Denote(Scale(2.0, Unit));
+            RegularJoin(OpenInterval(0.0, 1.0), TranslateSet(1.0, OpenInterval(0.0, 1.0)));
+            Interior(Closure(OpenInterval(0.0, 1.0) + OpenInterval(1.0, 2.0)));
+            { CloseAdjacentOpenIntervals(0.0, 1.0, 2.0); }
+            Interior(Closure(OpenInterval(0.0, 2.0)));
+            { ClosureOpenInterval(0.0, 2.0); }
+            Interior(ClosedInterval(0.0, 2.0));
+            { InteriorClosedInterval(0.0, 2.0); }
+            OpenInterval(0.0, 2.0);
+            Denote(Scale(2.0, Unit));
         }
     }
     
@@ -928,11 +1257,10 @@ module CADModule {
     {
         calc {
             Denote(Difference(Unit, Translate(1.0, Unit)));
-            Closure(OpenInterval(0.0, 1.0) - Closure(TranslateSet(1.0, OpenInterval(0.0, 1.0))));
-            == Closure(OpenInterval(0.0, 1.0) - Closure(OpenInterval(1.0, 2.0)));
-            == { ClosureOpenInterval(1.0, 2.0); }
-               Closure(OpenInterval(0.0, 1.0) - ClosedInterval(1.0, 2.0));
-            == Denote(Unit);
+            OpenInterval(0.0, 1.0) - Closure(OpenInterval(1.0, 2.0));
+            { ClosureOpenInterval(1.0, 2.0); }
+            OpenInterval(0.0, 1.0) - ClosedInterval(1.0, 2.0);
+            Denote(Unit);
         }
     }
     
@@ -941,22 +1269,29 @@ module CADModule {
         ensures Denote(Intersect(Unit, Translate(1.0, Unit))) == Denote(Empty)
     {}
     
-    lemma OpenDenoteOpen(e: Expr)
-        ensures Open(OpenDenote(e))
+    lemma DenoteRegularOpen(e: Expr)
+        ensures RegularOpen(Denote(e))
     {
         match e {
-            case Empty =>
-            case Unit => OpenIntervalOpen(0.0, 1.0);
-            case Translate(r, e) => TranslateSetOpen(r, OpenDenote(e));
-            case Home(r, e) => var S := OpenDenote(e);
-                TranslateSetOpen(-RelPos(r, S), S);
-            case Scale(r, e) => { ScaleSetOpen(r, OpenDenote(e)); }
-            case Intersect(e1, e2) => {}
-            case Union(e1, e2) => {}
-            case Difference(e1, e2) => { DifferenceOpen(OpenDenote(e1), OpenDenote(e2)); }
+            case Empty => RegularOpenEmpty();
+            case Unit => OpenIntervalRegularOpen(0.0, 1.0);
+            case Translate(r, e) => TranslateSetRegularOpen(r, Denote(e));
+            case Home(r, e) => var S := Denote(e);
+                TranslateSetRegularOpen(-RelPos(r, S), S);
+            case Scale(r, e) => ScaleSetRegularOpen(r, Denote(e));
+            case Intersect(e1, e2) => IntersectRegularOpen(Denote(e1), Denote(e2));
+            case Union(e1, e2) => RegularJoinRegularOpen(Denote(e1), Denote(e2));
+            case Difference(e1, e2) => DifferenceRegularOpen(Denote(e1), Denote(e2));
         }
     }
-    
+
+    lemma DenoteOpen(e: Expr)
+        ensures Open(Denote(e))
+    {
+        DenoteRegularOpen(e);
+        RegularOpenOpen(Denote(e));
+    }
+
     predicate NoIsolatedPoints(S: iset<real>)
     {
         forall x, eps | x in S && eps > 0.0 :: !((Ball(x, eps) - iset{x}) !! S)
@@ -968,11 +1303,12 @@ module CADModule {
         forall x, eps | x in Denote(e) && eps > 0.0
             ensures exists z :: z in Ball(x, eps) && z != x && z in Denote(e)
         {
-            assert !(OpenDenote(e) !! Ball(x, eps / 2.0));
-            var y :| y in OpenDenote(e) && y in Ball(x, eps / 2.0);
+            assert !(Denote(e) !! Ball(x, eps / 2.0));
+            var y :| y in Denote(e) && y in Ball(x, eps / 2.0);
             if x == y {
-                OpenDenoteOpen(e);
-                var eps' :| eps' > 0.0 && Ball(y, eps') <= OpenDenote(e);
+                DenoteOpen(e);
+                assert InInterior(y, Denote(e));
+                var eps' :| eps' > 0.0 && Ball(y, eps') <= Denote(e);
                 var eps'' := min(eps, eps') / 2.0;
                 var z := x + eps'';
                 assert z in Ball(y, eps');
@@ -1002,13 +1338,13 @@ module CADModule {
         forall x, eps | x in S && eps > 0.0
             ensures HasNearbyPointInInterior(S, x, eps)
         {
-            assert x in Closure(OpenDenote(e));
-            var x' :| x' in Ball(x, eps) && x' in OpenDenote(e);
-            OpenDenoteOpen(e);
-            var eps' :| eps' > 0.0 && Ball(x', eps') <= OpenDenote(e);
+            assert x in Closure(Denote(e));
+            var x' :| x' in Ball(x, eps) && x' in Denote(e);
+            DenoteOpen(e);
+            var eps' :| eps' > 0.0 && Ball(x', eps') <= Denote(e);
     
             var eps'' := min(eps', eps - abs(x - x'));
-            assert Ball(x', eps'') <= OpenDenote(e);
+            assert Ball(x', eps'') <= Denote(e);
         }
     }
     
@@ -1063,7 +1399,18 @@ module CADModule {
     
     lemma SelfUnion(e: Expr)
         ensures Equiv(Union(e, e), e)
-    {}
+    {
+        var S := Denote(e);
+        calc {
+            Denote(Union(e, e));
+            RegularJoin(S, S);
+            Interior(Closure(S + S));
+            { assert S == S + S; }
+            Interior(Closure(S));
+            { DenoteRegularOpen(e); }
+            S;
+        }
+    }
     
     lemma SelfIntersect(e: Expr)
         ensures Equiv(Intersect(e, e), e)
@@ -1075,7 +1422,18 @@ module CADModule {
     
     lemma UnionEmpty(e: Expr)
         ensures Equiv(Union(e, Empty), e)
-    {}
+    {
+        var S := Denote(e);
+        calc {
+            Denote(Union(e, Empty));
+            RegularJoin(S, iset{});
+            Interior(Closure(S + iset{}));
+            { assert S == S + iset{}; }
+            Interior(Closure(S));
+            { DenoteRegularOpen(e); }
+            S;
+        }
+    }
     
     lemma IntersectEmpty(e: Expr)
         ensures Equiv(Intersect(e, Empty), Empty)
@@ -1087,11 +1445,11 @@ module CADModule {
     {
         calc {
             Denote(Difference(e, Empty));
-            Closure(OpenDenote(e) - Closure(iset{}));
+            Denote(e) - Closure(iset{});
             { ClosureEmpty(); }
-            Closure(OpenDenote(e));
             Denote(e);
         }
+
     }
     
     lemma DifferenceEmpty2(e: Expr)
@@ -1109,17 +1467,15 @@ module CADModule {
     lemma UnionAssoc(e1: Expr, e2: Expr, e3: Expr)
         ensures Equiv(Union(e1, Union(e2, e3)), Union(Union(e1, e2), e3))
     {
-        assert
-            OpenDenote(e1) + (OpenDenote(e2) + OpenDenote(e3)) ==
-            (OpenDenote(e1) + OpenDenote(e2)) + OpenDenote(e3);
+        RegularJoinAssoc(Denote(e1), Denote(e2), Denote(e3));
     }
     
     lemma IntersectAssoc(e1: Expr, e2: Expr, e3: Expr)
         ensures Equiv(Intersect(e1, Intersect(e2, e3)), Intersect(Intersect(e1, e2), e3))
     {
         assert
-            OpenDenote(e1) * (OpenDenote(e2) * OpenDenote(e3)) ==
-            (OpenDenote(e1) * OpenDenote(e2)) * OpenDenote(e3);
+            Denote(e1) * (Denote(e2) * Denote(e3)) ==
+            (Denote(e1) * Denote(e2)) * Denote(e3);
     }
     
     lemma IntersectDifference(e1: Expr, e2: Expr)
@@ -1127,28 +1483,6 @@ module CADModule {
     {
         calc {
             Denote(Intersect(e1, e2));
-            Closure(OpenDenote(Intersect(e1, e2)));
-            Closure(OpenDenote(e1) * OpenDenote(e2));
-            {
-                assert OpenDenote(e1) * OpenDenote(e2) ==
-                    OpenDenote(e1) - Closure(OpenDenote(e1) - Closure(OpenDenote(e2)))
-                by {
-                    var S1 := OpenDenote(e1);
-                    var S2 := OpenDenote(e2);
-                    OpenDenoteOpen(e2);
-                    
-                    forall x | x in S1 && x in S2
-                        ensures x in S1 - Closure(S1 - Closure(S2))
-                    {
-                        var eps :| Ball(x, eps) <= S2;
-                    }
-                    forall x | x in S1 && x !in Closure(S1 - Closure(S2))
-                        ensures x in S1 * S2
-                    {}
-                }
-            }
-            Closure(OpenDenote(e1) - Closure(OpenDenote(e1) - Closure(OpenDenote(e2))));
-            Closure(OpenDenote(Difference(e1, Difference(e1, e2))));
             Denote(Difference(e1, Difference(e1, e2)));
         }
     }
