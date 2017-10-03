@@ -502,6 +502,11 @@ module RealModule {
         Interior(Closure(A + B))
     }
 
+    function RegularJoinAlt(A: iset<real>, B: iset<real>): iset<real>
+    {
+        (A + B) + (Closure(A) * Closure(B))
+    }
+
     predicate RegularEquiv(A: iset<real>, B: iset<real>)
     {
         Interior(Closure(A)) == Interior(Closure(B))
@@ -663,10 +668,11 @@ module RealModule {
     }
 
     lemma RegularApproxUnion(A: iset<real>, B: iset<real>, A': iset<real>)
-        requires RegularApprox(A, A')
-        requires true
+        requires RegularApprox(A, A') && Regularizable(A) && Regularizable(A') && Regularizable(B)
         ensures RegularApprox(A + B, A' + B)
     {
+        RegularizableUnion(A, B);
+        RegularizableUnion(A', B);
         forall x {:nowarn} | x in Interior(Closure(A + B))
             ensures x in Interior(Closure(A' + B))
         {
@@ -706,7 +712,7 @@ module RealModule {
     }
 
     lemma RegularEquivUnion(A: iset<real>, B: iset<real>, A': iset<real>)
-        requires RegularEquiv(A, A') && Regularizable(A) && Regularizable(A')
+        requires RegularEquiv(A, A') && Regularizable(A) && Regularizable(A') && Regularizable(B)
         ensures RegularEquiv(A + B, A' + B)
     {
         RegularApproxUnion(A, B, A');
@@ -716,6 +722,7 @@ module RealModule {
     lemma RegularEquivRegularJoin(A: iset<real>, B: iset<real>)
         ensures RegularEquiv(RegularJoin(A, B), A + B)
     {
+
     }
 
     lemma RegularJoinAssoc(A: iset<real>, B: iset<real>, C: iset<real>)
@@ -1487,3 +1494,4 @@ module CADModule {
         }
     }
 }
+
