@@ -1,4 +1,4 @@
-// RUN: /compile:0 /noCheating:1
+// RUN: /compile:0 /rlimit:500000 /print:log.bpl
 
 module Prelude {
     function method Max(a: int, b: int): int
@@ -193,67 +193,159 @@ module Slice {
 }
 
 module List {
+    import Prelude
+    export provides List, List.repr, List.contents, List.Valid,
+                    List.PushFront, List.PushBack, List.PopFront, List.PopBack,
+                    List.Index, List.List
+
     class Node<T> {
         var next: Node<T>
         var data: T
 
-        ghost var repr: set<object>
-        ghost var contents: seq<Node<T>>
-
-        predicate Valid()
-            reads this, repr
+        constructor(data: T, next: Node<T>)
+            ensures this.data == data && this.next == next
         {
-            && this in repr
-            && null !in repr
-            && if next == null then
-                && contents == []
-              else
-                && next in repr
-                && next.repr <= repr
-                && this !in next.repr
-                && contents == [this] + next.contents
-                && next.Valid()
-        }
-
-        constructor(data: T, next: Node<T>) {
             this.next := next;
             this.data := data;
-            repr := {this} + GetRepr(next);
-            contents := [this] + GetContents(next);
-        }
-
-        static function GetRepr<T>(node: Node<T>): set<object>
-            reads node
-        {
-            if node == null then
-                {}
-            else
-                node.repr
-        }
-
-        static function GetContents<T>(node: Node<T>): seq<Node<T>>
-            reads node
-        {
-            if node == null then
-                []
-            else
-                node.contents
         }
     }
 
     class List<T> {
         var head: Node<T>
+        var tail: Node<T>
+
+        ghost var repr: set<object>
+        ghost var spine: seq<Node<T>>
+        ghost var contents: seq<T>
+
+
+        constructor List()
+            ensures Valid() && contents == [] && repr == {}
+        {
+            head := null;
+            tail := null;
+            repr := {};
+            spine := [];
+            contents := [];
+        }
 
         predicate Valid()
-            reads this, head, if head != null then head.repr else {}
+            reads this, repr
+            ensures Valid() ==> null !in repr
         {
-            head != null ==> head.Valid()
+            && null !in repr
+            && this !in repr
+            && ((head == null) == (tail == null) == (spine == []))
+            && |spine| == |contents|
+            && (head != null ==> spine[0] == head)
+            && (tail != null ==> Prelude.Last(spine) == tail)
+            && (forall i {:trigger spine[i] in repr} {:trigger spine[i].data} {:trigger spine[i].next}| 0 <= i < |spine| ::
+                && spine[i] in repr
+                && spine[i].data == contents[i]
+                && spine[i].next == (if i < |spine| - 1 then spine[i+1] else null))
+        }
+
+        method PushFront(x: T)
+            requires Valid()
+            modifies this, repr
+            ensures Valid() && fresh(repr - old(repr)) && contents == [x] + old(contents)
+        {
+            var node := new Node(x, head);
+            head := node;
+            if tail == null {
+                tail := node;
+            }
+            repr := repr + {node};
+            spine := [node] + spine;
+            contents := [x] + contents;
+        }
+
+        method PushBack(x: T)
+            requires Valid()
+            modifies this, repr
+            ensures Valid() && fresh(repr - old(repr)) && contents == old(contents) + [x]
+        {
+            var node := new Node(x, null);
+            if tail == null {
+                head := node;
+            } else {
+                tail.next := node;
+            }
+            tail := node;
+            repr := repr + {node};
+            spine := spine + [node];
+            contents := contents + [x];
+        }
+
+        method PopFront() returns (x: T)
+            requires Valid() && |contents| > 0
+            modifies this, repr
+            ensures Valid() && fresh(repr - old(repr)) && [x] + contents == old(contents)
+        {
+            x := head.data;
+            head := head.next;
+            if head == null {
+                tail := null;
+            }
+            contents := contents[1..];
+            spine := spine[1..];
+        }
+
+        method PopBack() returns (x: T)
+            requires Valid() && |contents| > 0
+            modifies this, repr
+            ensures Valid() && fresh(repr - old(repr)) && contents + [x] == old(contents)
+        {
+            x := tail.data;
+            contents := contents[..|contents|-1];
+            spine := spine[..|spine|-1];
+
+            if head == tail {
+                head := null;
+                tail := null;
+                return;
+            }
+
+            var node := head;
+            ghost var i := 0;
+            while node.next != tail
+                invariant 0 <= i < |spine|
+                invariant node == spine[i]
+                decreases |spine| - i
+            {
+                node := node.next;
+                i := i + 1;
+            }
+
+            tail := node;
+            tail.next := null;
+        }
+
+        method Index(i: int) returns (x: T)
+            requires Valid() && 0 <= i < |contents|
+            ensures x == contents[i]
+        {
+            var j := 0;
+            var node := head;
+
+            while j < i
+                invariant 0 <= j <= i
+                invariant node == spine[j]
+            {
+                node := node.next;
+                j := j + 1;
+            }
+
+            x := node.data;
         }
     }
 }
 
 module DoublyLinkedList {
     import Prelude
+
+    export provides List, List.List, List.Valid, List.repr, List.contents,
+                    List.PushBack
 
     class Node<T> {
         var prev: Node<T>
@@ -272,37 +364,34 @@ module DoublyLinkedList {
         var tail: Node<T>
 
         ghost var repr: set<object>
+        ghost var spine: seq<Node<T>>
         ghost var contents: seq<T>
 
-        static predicate ValidViaNext(
-            x: Node<T>,
-            repr: set<object>,
-            contents: seq<T>,
-            tail: Node<T>
-            )
-            requires null !in repr
-            decreases contents
-            reads repr
+        constructor List()
+            ensures Valid() && fresh(repr) && contents == []
         {
-            if contents == [] then
-                x == null
-            else
-                && x in repr
-                && contents[0] == x.data
-                && (if x.next == null then x == tail
-                   else x.next in repr && x.next.prev == x)
-                && ValidViaNext(x.next, repr - {x}, contents[1..], tail)
-
+            head := null;
+            tail := null;
+            repr := {};
+            spine := [];
+            contents := [];
         }
 
         predicate Valid()
             reads this, repr
+            ensures Valid() ==> null !in repr
         {
-            && (head == null <==> tail == null)
+            && ((head == null) == (tail == null) == (|spine| == 0))
             && null !in repr
             && this !in repr
-            && (head != null ==> head in repr && head.prev == null)
-            && ValidViaNext(head, repr, contents, tail)
+            && |spine| == |contents|
+            && (forall i {:trigger spine[i].next} {:trigger spine[i].prev} {:trigger spine[i].data} {:trigger spine[i] in repr} | 0 <= i < |spine| ::
+                && spine[i] in repr
+                && spine[i].data == contents[i]
+                && (spine[i].next == (if i < |spine| - 1 then spine[i+1] else null))
+                && (spine[i].prev == (if i > 0 then spine[i-1] else null)))
+            && (head != null ==> head == spine[0])
+            && (tail != null ==> tail == Prelude.Last(spine))
         }
 
         method PushFront(x: T)
@@ -321,66 +410,15 @@ module DoublyLinkedList {
             }
 
             head := node;
+            spine := [node] + spine;
             contents := [x] + contents;
             repr := repr + {node};
         }
 
-        static lemma ValidViaNextTailInRepr(
-            x: Node<T>,
-            repr: set<object>,
-            contents: seq<T>,
-            tail: Node<T>
-            )
-            requires null !in repr && ValidViaNext(x, repr, contents, tail)
-            requires contents != []
-            ensures tail in repr
-        {}
-
-        static lemma ValidViaNextTailNext(
-            x: Node<T>,
-            repr: set<object>,
-            contents: seq<T>,
-            tail: Node<T>
-            )
-            requires null !in repr && ValidViaNext(x, repr, contents, tail)
-            requires contents != []
-            ensures tail != null && tail.next == null
-        {}
-
-        static twostate lemma ValidViaNextPushBack(
-            x: Node<T>,
-            repr: set<object>,
-            contents: seq<T>,
-            tail: Node<T>,
-            node: Node<T>
-            )
-            requires null !in repr && old(ValidViaNext(x, repr, contents, tail))
-            requires tail != null && node != null && node !in repr
-            requires node.prev == tail && tail.next == node && node.next == null
-            requires unchanged(repr - {tail})
-            ensures ValidViaNext(x, repr + {node}, contents + [node.data], node)
-        {
-            var y := x;
-            var r := repr;
-            var c := contents;
-            while |c| > 0
-                invariant null !in r
-                invariant unchanged(r - {tail})
-                invariant old(allocated(y) && allocated(r) && allocated(c))
-                invariant old(ValidViaNext(y, r, c, tail))
-            {
-                r := r - {y};
-                y := y.next;
-                c := c[1..];
-            }
-
-        }
-
-
         method PushBack(x: T)
             requires Valid()
             modifies this, repr
-            ensures Valid() && contents == old(contents) + [x]
+            ensures Valid() && fresh(repr - old(repr)) && contents == old(contents) + [x]
         {
             var node := new Node(x);
             node.next := null;
@@ -389,11 +427,11 @@ module DoublyLinkedList {
             if tail == null {
                 head := node;
             } else {
-                ValidViaNextTailInRepr(head, repr, contents, tail);
                 node.prev.next := node;
             }
 
             tail := node;
+            spine := spine + [node];
             contents := contents + [x];
             repr := repr + {node};
         }
@@ -405,18 +443,12 @@ module DoublyLinkedList {
         {
             var j := 0;
             var node := head;
-            ghost var repr := this.repr;
-            ghost var contents := this.contents;
 
             while j < i
-                invariant null !in repr
                 invariant 0 <= j <= i
                 invariant i - j < |contents|
-                invariant contents == old(this.contents[j..])
-                invariant ValidViaNext(node, repr, contents, tail)
+                invariant node == spine[j]
             {
-                repr := repr - {node};
-                contents := contents[1..];
                 node := node.next;
                 j := j + 1;
             }
@@ -430,27 +462,48 @@ module DoublyLinkedList {
 module RingBuffer {
     import opened Prelude
 
-    class RingBuffer<T> {
+    export provides RingBuffer, RingBuffer.Valid, RingBuffer.repr, RingBuffer.contents,
+                    RingBuffer.Capacity, RingBuffer.RingBuffer,
+                    RingBuffer.PushBack
+
+
+    class RingBuffer<T(0)> {
         var buf: array<T>
         var start: int
         var end: int
 
         ghost var contents: seq<T>
+        ghost var repr: set<object>
+
+        constructor RingBuffer(len: nat)
+            requires len > 0
+            ensures Valid() && contents == [] && fresh(repr) && Capacity() == len
+        {
+            buf := new T[len + 1];
+            start := 0;
+            end := 0;
+            contents := [];
+            repr := {buf};
+        }
+
 
         predicate Valid()
-            reads this, buf
+            reads this, repr
+            ensures Valid() ==> null !in repr
         {
-            && buf != null
-            && buf.Length != 0
+            && null !in repr
+            && this !in repr
+            && buf in repr
             && 0 <= start < buf.Length
             && 0 <= end < buf.Length
             && contents == Contents()
         }
 
         function Contents(): seq<T>
-            reads this, buf
+            reads this, repr
             requires
-                && buf != null
+                && null !in repr
+                && buf in repr
                 && 0 <= start < buf.Length
                 && 0 <= end < buf.Length
         {
@@ -460,14 +513,21 @@ module RingBuffer {
                 buf[start..] + buf[..end]
         }
 
-        function Size(): int
-            reads this
-            requires buf != null
+        function Size(): nat
+            reads this, repr
+            requires Valid()
         {
             if start <= end then
                 end - start
             else
                 buf.Length - start + end
+        }
+
+        function Capacity(): nat
+            reads this, repr
+            requires Valid()
+        {
+            buf.Length - 1
         }
 
         function method {:opaque} Clip(i: int): int
@@ -482,15 +542,11 @@ module RingBuffer {
             i % buf.Length
         }
 
-        lemma SizeContents()
-            requires Valid()
-            ensures Size() == |contents|
-        {}
-
         method PushBack(t: T)
-            requires Valid() && Size() < buf.Length - 1
-            modifies this, buf
-            ensures Valid() && contents == old(contents) + [t]
+            requires Valid() && |contents| < Capacity()
+            modifies this, repr
+            ensures Valid() && fresh(repr - old(repr)) && contents == old(contents) + [t]
+            ensures Capacity() == old(Capacity())
         {
             buf[end] := t;
             end := Clip(end + 1);
@@ -498,8 +554,8 @@ module RingBuffer {
         }
 
         method PushFront(t: T)
-            requires Valid() && Size() < buf.Length - 1
-            modifies this, buf
+            requires Valid() && |contents| < Capacity()
+            modifies this, repr
             ensures Valid() && contents == [t] + old(contents)
         {
             start := Clip(start - 1);
@@ -508,8 +564,8 @@ module RingBuffer {
         }
 
         method PopBack() returns (x: T)
-            requires Valid() && Size() > 0
-            modifies this, buf
+            requires Valid() && |contents| > 0
+            modifies this, repr
             ensures Valid() && contents + [x] == old(contents)
         {
             end := Clip(end - 1);
@@ -518,11 +574,12 @@ module RingBuffer {
         }
 
         method PopFront() returns (x: T)
-            requires Valid() && Size() > 0
-            modifies this, buf
+            requires Valid() && |contents| > 0
+            modifies this, repr
             ensures Valid() && [x] + contents == old(contents)
         {
             x := buf[start];
+            assert x == contents[0];
             start := Clip(start + 1);
             contents := contents[1..];
         }
@@ -534,25 +591,41 @@ module Vector {
     import Prelude
     import Array
 
+    export provides Vector, Vector.Vector, Vector.Valid, Vector.contents, Vector.repr,
+                    Vector.PushBack
+
     class Vector<T(0)> {
         var buf: array<T>
         var end: int
 
         ghost var contents: seq<T>
+        ghost var repr: set<object>
+
+        constructor Vector()
+            ensures Valid() && contents == [] && fresh(repr)
+        {
+            buf := new T[10];
+            end := 0;
+            repr := {buf};
+            contents := [];
+        }
 
         predicate Valid()
-            reads this, buf
+            reads this, repr
+            ensures Valid() ==> null !in repr
         {
-            && buf != null
+            && null !in repr
+            && this !in repr
+            && buf in repr
             && 0 <= end <= buf.Length
             && contents == buf[..end]
         }
 
         method Resize(n: int)
             requires Valid()
-            modifies this
+            modifies this, repr
             ensures Valid() && contents == old(contents) && buf.Length >= n
-            ensures buf == old(buf) || fresh(buf)
+            ensures fresh(repr - old(repr))
         {
             if n <= buf.Length { return; }
 
@@ -560,12 +633,13 @@ module Vector {
             var a := new T[n'];
             Array.Copy(a, 0, buf, 0, end);
             buf := a;
+            repr := {buf};
         }
 
-        method Add(x: T)
+        method PushBack(x: T)
             requires Valid()
-            modifies this, buf
-            ensures Valid() && contents == old(contents) + [x]
+            modifies this, repr
+            ensures Valid() && fresh(repr - old(repr)) && contents == old(contents) + [x]
         {
             Resize(end + 1);
             buf[end] := x;
@@ -573,9 +647,26 @@ module Vector {
             contents := contents + [x];
         }
 
+        method PushFront(x: T)
+            requires Valid()
+            modifies this, repr
+            ensures Valid() && contents == [x] + old(contents)
+        {
+            Insert(0, x);
+        }
+
+        method PopFront() returns (x: T)
+            requires Valid() && end > 0
+            modifies this, repr
+            ensures Valid() && [x] + contents == old(contents)
+        {
+            x := buf[0];
+            Remove(0);
+        }
+
         method Insert(i: int, x: T)
             requires Valid() && 0 <= i <= end
-            modifies this, buf
+            modifies this, repr
             ensures Valid() && end == old(end) + 1
             ensures contents[..i] == old(contents[..i])
             ensures contents[i+1..] == old(contents[i..])
@@ -588,9 +679,9 @@ module Vector {
             end := end + 1;
         }
 
-        method Pop()
+        method PopBack()
             requires Valid() && end > 0
-            modifies this, buf
+            modifies this, repr
             ensures Valid() && contents == old(contents[..end-1])
         {
             contents := contents[..end-1];
@@ -599,7 +690,7 @@ module Vector {
 
         method Remove(i: int)
             requires Valid() && 0 <= i < end
-            modifies this, buf
+            modifies this, repr
             ensures Valid() && contents == old(contents[..i] + contents[i+1..])
         {
             Array.Copy(buf, i, buf, i + 1, end - i - 1);
@@ -607,4 +698,26 @@ module Vector {
             contents := contents[..i] + contents[i+1..];
         }
     }
+}
+
+module Client {
+
+    import Dequeue = DoublyLinkedList
+
+    method Main(n: nat)
+    {
+        var d := new Dequeue.List<int>.List();
+        var i := 0;
+        while i < n
+            invariant 0 <= i <= n
+            invariant d.Valid() && fresh(d.repr)
+            invariant |d.contents| == i
+            invariant forall j | 0 <= j < i :: d.contents[j] == j
+        {
+            d.PushBack(i);
+            i := i + 1;
+        }
+
+    }
+
 }
