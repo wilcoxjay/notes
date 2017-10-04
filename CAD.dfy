@@ -1077,6 +1077,50 @@ module RealModule {
         }
         EstablishRegularOpen(ScaleSet(r, S));
     }
+
+    predicate InHullSet(S: iset<real>, x: real)
+    {
+        exists p, q :: p in S && q in S && p < x < q
+    }
+
+    function HullSet(S: iset<real>): iset<real>
+    {
+        iset x | InHullSet(S, x)
+    }
+
+    lemma HullSetOpen(S: iset<real>)
+        ensures Open(HullSet(S))
+    {
+        forall x | x in HullSet(S)
+            ensures exists eps :: eps > 0.0 && Ball(x, eps) <= HullSet(S)
+        {
+            var p, q :| p in S && q in S && p < x < q;
+            var eps := min(x - p, q - x);
+            assert Ball(x, eps) <= HullSet(S);
+        }
+    }
+
+    lemma HullSetRegularOpen(S: iset<real>)
+        ensures RegularOpen(HullSet(S))
+    {
+        forall x | x in Interior(Closure(HullSet(S)))
+            ensures x in HullSet(S)
+        {
+            var eps :| eps > 0.0 && Ball(x, eps) <= Closure(HullSet(S));
+            var p := x - eps / 2.0;
+            var q := x + eps / 2.0;
+            assert p in Ball(x, eps) && q in Ball(x, eps);
+            assert !(Ball(p, eps / 2.0) !! HullSet(S));
+            assert !(Ball(q, eps / 2.0) !! HullSet(S));
+            var p' :| p' in Ball(p, eps / 2.0) && p' in HullSet(S);
+            var q' :| q' in Ball(q, eps / 2.0) && q' in HullSet(S);
+            var p'' :| p'' in S && p'' < p';
+            var q'' :| q'' in S && q' < q'';
+        }
+
+        HullSetOpen(S);
+        EstablishRegularOpen(HullSet(S));
+    }
 }
 
 module BoundedModule {
@@ -1096,6 +1140,16 @@ module BoundedModule {
         assert IsUB(0.0, iset{});
     }
     
+    lemma HullSetBounded(S: iset<real>)
+        requires Bounded(S)
+        ensures Bounded(HullSet(S))
+    {
+        var lb, ub :| IsLB(lb, S) && IsUB(ub, S);
+
+        assert IsLB(lb, HullSet(S));
+        assert IsUB(ub, HullSet(S));
+    }
+
     lemma OpenIntervalBounded(a: real, b: real)
         ensures Bounded(OpenInterval(a, b))
     {
@@ -1244,6 +1298,7 @@ module CADModule {
     datatype Expr =
         | Empty
         | Unit
+        | Hull(e: Expr)
         | Translate(r: real, e: Expr)
         | Scale(r: real, e: Expr)
         | Home(r: real, e: Expr)
@@ -1276,6 +1331,9 @@ module CADModule {
             case Unit =>
                 OpenIntervalBounded(0.0, 1.0);
                 OpenInterval(0.0, 1.0)
+            case Hull(e) =>
+                HullSetBounded(Denote(e));
+                HullSet(Denote(e))
             case Translate(r,e) =>
                 TranslateSetBounded(r, Denote(e));
                 TranslateSet(r, Denote(e))
@@ -1337,6 +1395,7 @@ module CADModule {
         match e {
             case Empty => RegularOpenEmpty();
             case Unit => OpenIntervalRegularOpen(0.0, 1.0);
+            case Hull(e) => HullSetRegularOpen(Denote(e));
             case Translate(r, e) => TranslateSetRegularOpen(r, Denote(e));
             case Home(r, e) => var S := Denote(e);
                 TranslateSetRegularOpen(-RelPos(r, S), S);
