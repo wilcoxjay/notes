@@ -435,7 +435,12 @@ module RealModule {
             assert Ball(x, eps) <= D;
         }
     }
-    
+
+    lemma UnionOpen(S1: iset<real>, S2: iset<real>)
+        requires Open(S1) && Open(S2)
+        ensures Open(S1 + S2)
+    {}
+
     lemma IntersectOpen(S1: iset<real>, S2: iset<real>)
         requires Open(S1) && Open(S2)
         ensures Open(S1 * S2)
@@ -483,6 +488,13 @@ module RealModule {
             RegularOpenRegular(S);
             assert Regular(S) && Open(S);
         }
+    }
+
+
+    predicate RegularizableOpen(S: iset<real>)
+    {
+        && Regularizable(S)
+        && Open(S)
     }
 
 
@@ -667,20 +679,50 @@ module RealModule {
 
     }
 
+    lemma ExploitClosureOfInterior(A: iset<real>, x: real, eps: real)
+        returns (x': real, eps': real)
+        requires eps > 0.0 && x in Closure(Interior(A))
+        ensures eps' > 0.0 && Ball(x', eps') <= A * Ball(x, eps)
+    {
+        assert !(Interior(A) !! Ball(x, eps));
+        x' :| x' in Interior(A) && x' in Ball(x, eps);
+        eps' :| eps' > 0.0 && Ball(x', eps') <= A;
+        eps' := min(eps - abs(x - x'), eps');
+    }
+
+    lemma SomethingBallUnion(A: iset<real>, B: iset<real>, x: real, eps: real)
+        returns (x': real, eps': real)
+        requires eps > 0.0 && Ball(x, eps) <= A + B
+        requires A <= Closure(Interior(A)) && B <= Closure(Interior(B))
+        ensures eps' > 0.0
+        ensures
+            || Ball(x', eps') <= Ball(x, eps) * A
+            || Ball(x', eps') <= Ball(x, eps) * B
+    {
+        assert x in Ball(x, eps);
+        if x in A {
+            x', eps' := ExploitClosureOfInterior(A, x, eps);
+        } else {
+            assert x in B;
+            x', eps' := ExploitClosureOfInterior(B, x, eps);
+        }
+    }
+
     lemma RegularApproxUnion(A: iset<real>, B: iset<real>, A': iset<real>)
-        requires RegularApprox(A, A') && Regularizable(A) && Regularizable(A') && Regularizable(B)
+        requires RegularApprox(A, A') && RegularizableOpen(A)
         ensures RegularApprox(A + B, A' + B)
     {
-        RegularizableUnion(A, B);
-        RegularizableUnion(A', B);
-        forall x {:nowarn} | x in Interior(Closure(A + B))
-            ensures x in Interior(Closure(A' + B))
+        var U := A + B;
+        var V := A' + B;
+        forall x | x in Interior(Closure(U))
+            ensures x in Interior(Closure(V))
         {
             calc ==> {
                 x in Interior(Closure(A + B));
                 exists eps :: eps > 0.0 && Ball(x, eps) <= Closure(A + B);
                 {
                     var eps :| eps > 0.0 && Ball(x, eps) <= Closure(A + B);
+
                     forall y | y in Ball(x, eps)
                         ensures y in Closure(A' + B)
                     {
@@ -696,6 +738,7 @@ module RealModule {
                                 var eps''' :| eps''' > 0.0 && Ball(z, eps''') <= Closure(A');
                                 var eps'''' := min(eps''', eps' - abs(z - y));
                                 assert z in Ball(z, eps''');
+                                assert z in Closure(A');
                                 assert !(Ball(z, eps'''') !! A');
                                 assert !(Ball(y, eps') !! (A' + B));
                             } else {
@@ -712,7 +755,7 @@ module RealModule {
     }
 
     lemma RegularEquivUnion(A: iset<real>, B: iset<real>, A': iset<real>)
-        requires RegularEquiv(A, A') && Regularizable(A) && Regularizable(A') && Regularizable(B)
+        requires RegularEquiv(A, A') && RegularizableOpen(A) && RegularizableOpen(A')
         ensures RegularEquiv(A + B, A' + B)
     {
         RegularApproxUnion(A, B, A');
@@ -722,10 +765,11 @@ module RealModule {
     lemma RegularEquivRegularJoin(A: iset<real>, B: iset<real>)
         ensures RegularEquiv(RegularJoin(A, B), A + B)
     {
-
+        InteriorClosureInteriorClosure(A + B);
     }
 
     lemma RegularJoinAssoc(A: iset<real>, B: iset<real>, C: iset<real>)
+        requires RegularizableOpen(A) && RegularizableOpen(B) && RegularizableOpen(C)
         ensures RegularJoin(RegularJoin(A, B), C) == RegularJoin(A, RegularJoin(B, C))
     {
         forall x
@@ -736,12 +780,24 @@ module RealModule {
                 x in RegularJoin(RegularJoin(A, B), C);
                 x in Interior(Closure(RegularJoin(A, B) + C));
                 { RegularEquivRegularJoin(A, B);
-                  RegularEquivUnion(RegularJoin(A, B), C, A + B); }
+                  RegularJoinRegularOpen(A, B);
+                  RegularOpenRegular(RegularJoin(A, B));
+                  RegularOpenOpen(RegularJoin(A, B));
+                  RegularizableUnion(A, B);
+                  UnionOpen(A, B);
+                  RegularEquivUnion(RegularJoin(A, B), C, A + B);
+                }
                 x in Interior(Closure(A + B + C));
                 { assert A + B + C == (B + C) + A; }
                 x in Interior(Closure((B + C) + A));
                 { RegularEquivRegularJoin(B, C);
-                  RegularEquivUnion(RegularJoin(B, C), A, B + C); }
+                  RegularJoinRegularOpen(B, C);
+                  RegularOpenRegular(RegularJoin(B, C));
+                  RegularOpenOpen(RegularJoin(B, C));
+                  RegularizableUnion(B, C);
+                  UnionOpen(B, C);
+                  RegularEquivUnion(RegularJoin(B, C), A, B + C);
+                }
                 x in Interior(Closure(RegularJoin(B, C) + A));
                 { assert RegularJoin(B, C) + A == A + RegularJoin(B, C); }
                 x in Interior(Closure(A + RegularJoin(B, C)));
@@ -825,7 +881,6 @@ module RealModule {
     }
 
     lemma RegularJoinRegularOpen(A: iset<real>, B: iset<real>)
-        requires RegularOpen(A) && RegularOpen(B)
         ensures RegularOpen(RegularJoin(A, B))
     {
         InteriorClosureRegularOpen(A + B);
@@ -1292,6 +1347,15 @@ module CADModule {
         }
     }
 
+    lemma DenoteRegularizableOpen(e: Expr)
+        ensures RegularizableOpen(Denote(e))
+    {
+        DenoteRegularOpen(e);
+        RegularOpenRegular(Denote(e));
+        RegularOpenOpen(Denote(e));
+    }
+
+
     lemma DenoteOpen(e: Expr)
         ensures Open(Denote(e))
     {
@@ -1474,6 +1538,7 @@ module CADModule {
     lemma UnionAssoc(e1: Expr, e2: Expr, e3: Expr)
         ensures Equiv(Union(e1, Union(e2, e3)), Union(Union(e1, e2), e3))
     {
+        forall e { DenoteRegularizableOpen(e); }
         RegularJoinAssoc(Denote(e1), Denote(e2), Denote(e3));
     }
     
@@ -1485,13 +1550,38 @@ module CADModule {
             (Denote(e1) * Denote(e2)) * Denote(e3);
     }
     
+    lemma IntersectDifference'(A: iset<real>, B: iset<real>)
+        requires Open(A) && Open(B) && Regular(B)
+        ensures A * B == A - Closure(A - Closure(B))
+    {
+        IntersectOpen(A, B);
+
+        forall x | x in A && x !in Closure(A - Closure(B))
+            ensures x in B
+        {
+            var eps :| eps > 0.0 && (Ball(x, eps) !! (A - Closure(B)));
+            var eps' :| eps' > 0.0 && Ball(x, eps') <= A;
+            var eps'' := min(eps, eps');
+
+            forall y | y in Ball(x, eps'')
+                ensures y in Closure(B)
+            {
+                assert y in Ball(x, eps) && y in A;
+            }
+            assert Ball(x, eps'') <= Closure(B);
+            assert x in Interior(Closure(B));
+            assert x in B;
+        }
+    }
+
+
     lemma IntersectDifference(e1: Expr, e2: Expr)
         ensures Equiv(Intersect(e1, e2), Difference(e1, Difference(e1, e2)));
     {
-        calc {
-            Denote(Intersect(e1, e2));
-            Denote(Difference(e1, Difference(e1, e2)));
-        }
+        DenoteRegularOpen(e1);
+        DenoteRegularOpen(e2);
+        RegularOpenIffRegularAndOpen(Denote(e1));
+        RegularOpenIffRegularAndOpen(Denote(e2));
+        IntersectDifference'(Denote(e1), Denote(e2));
     }
 }
-
