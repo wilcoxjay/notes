@@ -1123,6 +1123,206 @@ module RealModule {
     }
 }
 
+module SqrtModule {
+    function Square(x: real): (y: real)
+        ensures y >= 0.0
+    {
+        x * x
+    }
+
+    function Sqrt(x: real): (y: real)
+        requires x >= 0.0
+        ensures y >= 0.0 && Square(y) == x
+
+    lemma MulLtCompat(a: real, b: real, c: real)
+        requires a < b
+        requires c > 0.0
+        ensures a * c < b * c
+    {}
+    
+    lemma SquareGtZero(x: real)
+        ensures x > 0.0 ==> Square(x) > 0.0
+    {
+        if x > 0.0 {
+            MulLtCompat(0.0, x, x);
+        }
+    }
+    
+    lemma SquareEqZero(x: real)
+        ensures Square(x) == 0.0 ==> x == 0.0
+    {
+        if x * x == 0.0 {
+            if x > 0.0 {
+                SquareGtZero(x);
+            } else if x < 0.0 {
+                var y := -x;
+                assert Square(x) == Square(y);
+                SquareGtZero(y);
+            }
+        }
+    }
+    
+    lemma SqrtZero()
+        ensures Sqrt(0.0) == 0.0
+    {
+        var x := Sqrt(0.0);
+        assert Square(x) == 0.0;
+        SquareGtZero(x);
+    }
+}
+
+module Real2dModule {
+    import opened SqrtModule
+    import opened PreludeModule
+
+    datatype Point2d = Point2d(x: real, y: real)
+    
+    function Add(p1: Point2d, p2: Point2d): Point2d
+    {
+        Point2d(p1.x + p2.x, p1.y + p2.y)
+    }
+
+    function Subtract(p1: Point2d, p2: Point2d): Point2d
+    {
+        Point2d(p1.x - p2.x, p1.y - p2.y)
+    }
+    
+    function EuclideanDist(a: Point2d, b: Point2d): real
+    {
+        Sqrt(Square(a.x - b.x) + Square(a.y - b.y))
+    }
+    
+    function ManhattanDist(a: Point2d, b: Point2d): real
+    {
+        abs(a.x - b.x) + abs(a.y - b.y)
+    }
+    
+    lemma MulLtCompat(a: real, b: real, c: real)
+        requires a < b
+        requires c > 0.0
+        ensures a * c < b * c
+    {}
+    
+    lemma MulLtCompat4(a: real, b: real, c: real, d: real)
+        requires 0.0 < a < b
+        requires d > c > 0.0
+        ensures a * c < b * d
+    {
+        assert a * c < b * d;
+    }
+    
+    lemma SquareGtZero(x: real)
+        ensures x > 0.0 ==> x * x > 0.0
+    {
+        if x > 0.0 {
+            MulLtCompat(0.0, x, x);
+        }
+    }
+    
+    lemma SquareEqZero(x: real)
+        requires x * x == 0.0
+        ensures x == 0.0
+    {
+        if x > 0.0 {
+            SquareGtZero(x);
+        } else if x < 0.0 {
+            var y := -x;
+            assert x * x == y * y;
+            SquareGtZero(y);
+        }
+    }
+    
+    lemma SquareLeInv(a: real, b: real)
+        requires a >= 0.0 && b >= 0.0
+        requires a * a <= b * b
+        ensures a <= b
+    {
+        if b == 0.0 {
+            SquareEqZero(a);
+            return;
+        }
+    
+        if b < a {
+            MulLtCompat4(b, a, b, a);
+            assert b * b < a * a;
+        }
+    }
+    
+    lemma EuclideanLeManhattan(a: Point2d, b: Point2d)
+        ensures EuclideanDist(a, b) <= ManhattanDist(a, b)
+    {
+        SquareLeInv(Sqrt(Square(a.x - b.x) + Square(a.y - b.y)), abs(a.x - b.x) + abs(a.y - b.y));
+    }
+    
+    
+    lemma SquareSumDoubleSumSquare(x: real, y: real)
+        requires x >= 0.0 && y >= 0.0
+        ensures Square(x + y) <= 2.0 * (Square(x) + Square(y))
+    {
+        calc <==> {
+            Square(x + y) <= 2.0 * (Square(x) + Square(y));
+            Square(x) + Square(y) + 2.0 * x * y <= 2.0 * (Square(x) + Square(y));
+            2.0 * x * y <= Square(x) + Square(y);
+            0.0 <= Square(x) + Square(y) - 2.0 * x * y;
+            0.0 <= Square(x - y);
+            true;
+        }
+    }
+    
+    lemma ManhattanLeEuclidean(a: Point2d, b: Point2d)
+        ensures ManhattanDist(a, b) <= EuclideanDist(a, b) * Sqrt(2.0)
+    {
+        var x := a.x - b.x;
+        var y := a.y - b.y;
+    
+        calc <= {
+               Square(abs(x) + abs(y));
+            == Square(abs(x)) + Square(abs(y)) + 2.0 * abs(x) * abs(y);
+            <= { SquareSumDoubleSumSquare(abs(x), abs(y)); }
+               (Square(abs(x)) + Square(abs(y))) * 2.0;
+            == Square(Sqrt((Square(x) + Square(y)) * 2.0));
+            == Square(Sqrt(Square(x) + Square(y)) * Sqrt(2.0));
+        }
+        SquareLeInv(abs(x) + abs(y), Sqrt(Square(x) + Square(y)) * Sqrt(2.0));
+    }
+
+    predicate InBall(center: Point2d, r: real, x: Point2d)
+    {
+        ManhattanDist(center, x) < r
+    }
+    
+    function Ball(center: Point2d, r: real): iset<Point2d>
+    {
+        iset x | InBall(center, r, x)
+    }
+
+    predicate InInterior(x: Point2d, S: iset<Point2d>)
+    {
+        exists eps | eps > 0.0 :: Ball(x, eps) <= S
+    }
+    
+    function Interior(S: iset<Point2d>): iset<Point2d>
+    {
+        iset x | InInterior(x, S)
+    }
+    
+    predicate Open(S: iset<Point2d>)
+    {
+        forall x | x in S :: InInterior(x, S)
+    }
+
+    predicate InClosure(x: Point2d, S: iset<Point2d>)
+    {
+        forall eps | eps > 0.0 :: !(Ball(x, eps) !! S)
+    }
+    
+    function Closure(S: iset<Point2d>): iset<Point2d>
+    {
+        iset x | InClosure(x, S)
+    }
+
+}
+
 module BoundedModule {
     import opened PreludeModule
     import opened RealModule
