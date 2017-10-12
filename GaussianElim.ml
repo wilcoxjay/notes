@@ -1,3 +1,28 @@
+let argmax (f : int -> float) (l : int list) : int =
+  let rec go (max_i, max) = function
+    | [] -> max_i
+    | x :: xs -> go (let fx = f x in if fx > max then (x, fx) else (max_i, max)) xs
+  in match l with
+     | [] -> raise Not_found
+     | x :: xs -> go (x, f x) xs
+
+let absf a = if a < 0.0 then -. a else a
+
+let range lo hi =
+  let rec go acc x =
+    if x < lo then acc
+    else go (x :: acc) (x - 1)
+  in go [] (hi - 1)
+
+let near_zero x = x = 0.0
+
+let rec transpose = function
+| [] -> []
+| [] :: xss -> transpose xss
+| (x::xs) :: xss ->
+   (x :: List.map List.hd xss) :: transpose (xs :: List.map List.tl xss)
+
+
 module Matrix : sig
   type t
   exception Singular of int * int
@@ -37,12 +62,6 @@ let swap_rows m i j =
   m.buf.(i) <- m.buf.(j);
   m.buf.(j) <- t
 
-let scale_row m i alpha =
-  let row = m.buf.(i) in
-  for j = 0 to m.inner_dim - 1 do
-    row.(j) <- alpha *. row.(j)
-  done
-
 let add_scaled_row m dst src alpha =
   let r_dst = m.buf.(dst) in
   let r_src = m.buf.(src) in
@@ -50,34 +69,11 @@ let add_scaled_row m dst src alpha =
     r_dst.(j) <- r_dst.(j) +. alpha *. r_src.(j)
   done
 
-let min a b = if a < b then a else b
-
 let get m i j = m.buf.(i).(j)
 
 let set m i j x = m.buf.(i).(j) <- x
 
-let near_zero x = x = 0.0
-
 exception Singular of int * int
-
-let argmax (f : int -> float) (l : int list) : int =
-  let rec go max_i max = function
-    | [] -> max_i
-    | x :: xs -> let (max_i, max) =
-                   let fx = f x in if fx > max then (x, fx) else (max_i, max) in
-                 go max_i max xs
-  in match l with
-     | [] -> raise Not_found
-     | x :: xs -> go x (f x) xs
-
-let absf a = if a < 0.0 then -. a else a
-
-let range lo hi =
-  let rec go acc x =
-    if x < lo then acc
-    else go (x :: acc) (x - 1)
-  in go [] (hi - 1)
-
 
 (* transcribed from https://en.wikipedia.org/wiki/Gaussian_elimination#Pseudocode *)
 let gaussian_elim mat =
@@ -96,30 +92,21 @@ let gaussian_elim mat =
       set mat i k 0.0
     done
   done
-
 end
 
 type point = float * float * float
 type line = point * point
 
-
 let point_scale alpha (x,y,z) = (alpha *. x, alpha *. y, alpha *. z)
 let point_add (x0,y0,z0) (x1,y1,z1) = (x0 +. x1, y0 +. y1, z0 +. z1)
 let point_subtract (x0,y0,z0) (x1,y1,z1) = (x0 -. x1, y0 -. y1, z0 -. z1)
-
-let rec transpose = function
-| [] -> []
-| [] :: xss -> transpose xss
-| (x::xs) :: xss ->
-   (x :: List.map List.hd xss) :: transpose (xs :: List.map List.tl xss)
-
-let triple_list (x, y, z) = [x; y; z]
 
 (* this actually only handles the skew case properly, I think *)
 let isect_ll (p0, q0) (p1, q1) =
   let v0 = point_subtract q0 p0 in
   let v1 = point_subtract q1 p1 in
   let p = point_subtract p1 p0 in
+  let triple_list (x, y, z) = [x; y; z] in
   let m = Matrix.of_list (transpose (List.map triple_list [v0; v1; p])) in
   begin
     try Matrix.gaussian_elim m
@@ -135,8 +122,6 @@ let isect_ll (p0, q0) (p1, q1) =
      but we don't care since we only need one expression for it. *)
   (* let t0 = (Matrix.get m 0 2 -. Matrix.get m 0 1 *. t1) /. Matrix.get m 0 0 in *)
   point_add p1 (point_scale t1 v1)
-
-
 
 let l0 = ((0.0, 0.0, 0.0), (1.0, 0.0, 1.0))
 let l1 = ((0.707, 0.0, 0.707), (1.414, 0.0, 0.0))
