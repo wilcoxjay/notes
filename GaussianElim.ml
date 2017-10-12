@@ -124,7 +124,7 @@ let isect_ll (p0, q0) (p1, q1) =
   begin
     try Matrix.gaussian_elim m
     with Matrix.Singular (i, j) as e ->
-      (* we expect the augmented exception since the system is *)
+      (* we expect the augmented exception since the system is overdetermined *)
       if i != 2 || j != 2
       then raise e
       else ()
