@@ -122,12 +122,12 @@ let isect_ll (p0, q0) (p1, q1) =
   let p = point_subtract p1 p0 in
   let m = Matrix.of_list (transpose (List.map triple_list [v0; v1; p])) in
   begin
-  try Matrix.gaussian_elim m
-  with Matrix.Singular (i, j) as e ->
-    (* we expect the augmented exception since the system is *)
-       if i != 2 || j != 2
-       then raise e
-       else ()
+    try Matrix.gaussian_elim m
+    with Matrix.Singular (i, j) as e ->
+      (* we expect the augmented exception since the system is *)
+      if i != 2 || j != 2
+      then raise e
+      else ()
   end;
   (* backsolve *)
   let t1 = Matrix.get m 1 2 /. Matrix.get m 1 1 in
