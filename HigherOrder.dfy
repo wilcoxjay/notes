@@ -1,3 +1,5 @@
+// RUN: /compile:0
+
 lemma Plus_Assoc<A>(xs: seq<A>, ys: seq<A>, zs: seq<A>)
   ensures (xs + ys) + zs == xs + (ys + zs)
 {}
