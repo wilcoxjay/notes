@@ -61,6 +61,7 @@ method Dup(s: State, proc: Pid, oldfd: FD) returns (ok: bool, newfd: FD)
         && 0 <= oldfd < s.proc_fd_tables[proc].Length
         && 0 <= newfd < s.proc_fd_tables[proc].Length
         && s.proc_fd_tables[proc][oldfd] == s.proc_fd_tables[proc][newfd]
+        && (forall fd | 0 <= fd < newfd :: s.proc_fd_tables[proc][fd] != -1)
         && (forall fd | 0 <= fd < s.proc_fd_tables[proc].Length && fd != newfd ::
             s.proc_fd_tables[proc][fd] == old(s.proc_fd_tables[proc][fd]))
 {
@@ -71,6 +72,8 @@ method Dup(s: State, proc: Pid, oldfd: FD) returns (ok: bool, newfd: FD)
     ok := false;
     while newfd < fd_table.Length
         modifies {}
+        invariant 0 <= newfd <= fd_table.Length
+        invariant (forall fd | 0 <= fd < newfd :: s.proc_fd_tables[proc][fd] != -1)
     {
         if fd_table[newfd] == -1 { ok := true; break; }
         newfd := newfd + 1;
