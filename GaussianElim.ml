@@ -86,10 +86,7 @@ let gaussian_elim mat =
     else swap_rows mat k i_max;
     for i = k + 1 to m - 1 do
       let f = get mat i k /. get mat k k in
-      for j = k + 1 to n - 1 do
-        set mat i j (get mat i j -. get mat k j *. f)
-      done;
-      set mat i k 0.0
+      add_scaled_row mat i k (-. f)
     done
   done
 end
@@ -101,6 +98,8 @@ let point_scale alpha (x,y,z) = (alpha *. x, alpha *. y, alpha *. z)
 let point_add (x0,y0,z0) (x1,y1,z1) = (x0 +. x1, y0 +. y1, z0 +. z1)
 let point_subtract (x0,y0,z0) (x1,y1,z1) = (x0 -. x1, y0 -. y1, z0 -. z1)
 
+type isect_ll_result = None | Over | Cross of point
+
 (* this actually only handles the skew case properly, I think *)
 let isect_ll (p0, q0) (p1, q1) =
   let v0 = point_subtract q0 p0 in
@@ -108,23 +107,45 @@ let isect_ll (p0, q0) (p1, q1) =
   let p = point_subtract p1 p0 in
   let triple_list (x, y, z) = [x; y; z] in
   let m = Matrix.of_list (transpose (List.map triple_list [v0; v1; p])) in
-  begin
-    try Matrix.gaussian_elim m
-    with Matrix.Singular (i, j) as e ->
+  try Matrix.gaussian_elim m; None
+  with Matrix.Singular (i, j) as e ->
       (* we expect the augmented exception since the system is overdetermined *)
       if i != 2 || j != 2
       then raise e
-      else ()
-  end;
-  (* backsolve *)
-  let t1 = Matrix.get m 1 2 /. Matrix.get m 1 1 in
-  (* we could also express the intersection point in terms of the first line,
-     but we don't care since we only need one expression for it. *)
-  (* let t0 = (Matrix.get m 0 2 -. Matrix.get m 0 1 *. t1) /. Matrix.get m 0 0 in *)
-  point_add p1 (point_scale t1 v1)
+      else
+        (* backsolve *)
+        let t1 = Matrix.get m 1 2 /. Matrix.get m 1 1 in
+        (* we could also express the intersection point in terms of the first line,
+           but we don't care since we only need one expression for it. *)
+        (* let t0 = (Matrix.get m 0 2 -. Matrix.get m 0 1 *. t1) /. Matrix.get m 0 0 in *)
+        Cross (point_add p1 (point_scale t1 v1))
 
-let l0 = ((0.0, 0.0, 0.0), (1.0, 0.0, 1.0))
-let l1 = ((0.707, 0.0, 0.707), (1.414, 0.0, 0.0))
+let tests =
+  [ ( ( (0.0, 0.0, 0.0)
+      , (1.0, 0.0, 1.0)
+      )
+    , ( (0.707, 0.0, 0.707)
+      , (1.414, 0.0, 0.0)
+      )
+    )
+  ; ( ( (4.0, 7.0, 9.0)
+      , (1.0, 1.0, 1.0)
+      )
+    , ( (0.5, 0.7, 1.0)
+      , (1.0, 0.2, 9.0)
+      )
+    )
+  ; ( ( (0.0, 0.0, 0.0)
+      , (0.0, 0.0, 1.0)
+      )
+    , ( (0.0, 0.0, 0.0)
+      , (1.0, 0.0, 1.0)
+      )
+    )
+  ]
+
+let run_tests () =
+  List.map (fun (l0, l1) -> isect_ll l0 l1) tests
 
 (* isect_ll l0 l1;;*)
 (* ^ correctly returns (0.707, 0.0, 0.707) *)
