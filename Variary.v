@@ -1,3 +1,6 @@
+Require Import List.
+Import ListNotations.
+
 Fixpoint narg (n : nat) (T : Type) (U : Type) : Type :=
   match n with
   | 0 => U
@@ -18,6 +21,14 @@ Proof.
   induction n; simpl; auto.
 Qed.
 
+Lemma narg_ext_eq_sym :
+  forall T U (R : U -> U -> Prop) n (A B : narg n T U),
+    (forall u1 u2, R u1 u2 -> R u2 u1) ->
+    narg_ext_eq n R A B ->
+    narg_ext_eq n R B A.
+Proof.
+  induction n; simpl; intros A B Hsym; eauto.
+Qed.
 
 Lemma narg_ext_eq_trans :
   forall T U (R : U -> U -> Prop) n (A B C : narg n T U),
@@ -56,17 +67,25 @@ Proof.
   induction n; simpl; intros x HR; auto.
 Qed.
 
+Lemma ncompose_compose' :
+  forall T U V W (f : U -> V) (g : V -> W) (R : W -> W -> Prop) n (x : narg n T U),
+    (forall u, R (g (f u)) (g (f u))) ->
+    narg_ext_eq _ R (ncompose (fun u => g (f u)) x) (ncompose g (ncompose f x)).
+Proof.
+  induction n; simpl; intros x HR; auto.
+Qed.
+
 Lemma nforall_respects_ext_eq :
-  forall n T (P Q : narg n T Prop) (R : Prop -> Prop -> Prop),
-    (forall A B, R A B -> (A <-> B)) ->
+  forall n T (P Q : narg n T Prop) (R : _ -> _ -> Prop),
+    (forall A B : T -> Prop, (forall t, R (A t) (B t)) -> R (forall t, A t) (forall t, B t)) ->
     narg_ext_eq _ R P Q ->
-    nforall n T P <-> nforall n T Q.
+    R (nforall n T P) (nforall n T Q).
 Proof.
   induction n; simpl; intros T P Q R HR HPQ.
-  - subst. firstorder.
-  - split; intros H t; specialize (IHn T (P t) (Q t) R HR (HPQ t)).
-    + firstorder.
-    + firstorder.
+  - auto.
+  - apply HR.
+    intros t.
+    apply IHn; auto.
 Qed.
 
 Lemma ncompose_respects_ext_eq :
@@ -78,25 +97,38 @@ Proof.
   induction n; simpl; intros A B HR E; auto.
 Qed.
 
-Theorem nlist_length : forall n T, nforall n T (ncompose (has_length_n n T) (nlist n T)).
+Lemma nlist_ind :
+  forall T (P : nat -> list T -> Prop),
+    P 0 nil ->
+    (forall a n l, P n l -> P (S n) (a :: l)) ->
+    forall n, nforall n T (ncompose (P n) (nlist n T)).
 Proof.
-  unfold has_length_n.
-  intros n T.
+  intros T P Pnil Pcons.
   induction n; simpl.
-  - reflexivity.
+  - auto.
   - intros t.
-    eapply nforall_respects_ext_eq with (R := fun A B => A <-> B); [| |apply IHn].
-    firstorder.
-
+    revert IHn.
+    apply nforall_respects_ext_eq with (R := fun A B : Prop => A -> B).
+    now firstorder.
     eapply narg_ext_eq_trans.
+    3: now apply ncompose_compose'.
     firstorder.
-    apply ncompose_compose.
-    firstorder.
-
-    eapply ncompose_respects_ext_eq with (RU := fun l1 l2 => l1 = l2).
-    simpl. firstorder. congruence. congruence.
-
+    simpl.
+    eapply ncompose_respects_ext_eq with (RU := eq).
+    intros.
+    subst.
+    auto.
     apply narg_ext_eq_refl.
     auto.
+Qed.
+
+Theorem nlist_length : forall n T, nforall n T (ncompose (has_length_n n T) (nlist n T)).
+Proof.
+  intros n T. revert n.
+  unfold has_length_n.
+  apply nlist_ind.
+  - reflexivity.
+  - intros a n l H.
+    simpl. congruence.
 Qed.
 Print Assumptions nlist_length.
