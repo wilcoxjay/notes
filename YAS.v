@@ -64,8 +64,14 @@ Module stepper.
       | More s => More (map_result f s)
       | Error => Error
       end.
-  Admitted.
-
+  Proof.
+    intros A B f s l.
+    revert s.
+    induction l; simpl; intros s.
+    - reflexivity.
+    - destruct s.
+      destruct (r a); auto.
+  Qed.
 End stepper.
 
 Module machine.
