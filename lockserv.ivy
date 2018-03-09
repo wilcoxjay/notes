@@ -1,0 +1,89 @@
+#lang ivy1.7
+
+# The Verdi lock service example.
+
+type node
+
+relation lock_msg(N:node)
+relation unlock_msg(N:node)
+relation grant_msg(N:node)
+
+relation holds_lock(N: node)
+
+relation held
+
+after init {
+    lock_msg(N) := false;
+    unlock_msg(N) := false;
+    grant_msg(N) := false;
+    holds_lock(N) := false;
+    held := false;
+}
+
+action lock(n: node) = {
+    lock_msg(n) := true
+}
+export lock
+
+action unlock(n: node) = {
+    require holds_lock(n);
+    holds_lock(n) := false;
+    unlock_msg(n) := true
+}
+export unlock
+
+action recv_lock(sender: node) = {
+    require lock_msg(sender);
+    require ~held;
+    held := true;
+    lock_msg(sender) := false;
+    grant_msg(sender) := true;
+}
+export recv_lock
+
+action recv_grant(n: node) = {
+    require grant_msg(n);
+    grant_msg(n) := false;
+    holds_lock(n) := true
+}
+export recv_grant
+
+action recv_unlock(sender: node) = {
+    require unlock_msg(sender);
+    unlock_msg(sender) := false;
+    held := false;
+}
+export recv_unlock
+
+# mutual exclusion: no two clients think they hold the lock simultaneously
+conjecture holds_lock(X) & holds_lock(Y) -> X = Y
+
+# each client C proceeds through the following states:
+# 1. requesting the lock (lock_msg is pending at the server from C)
+# 2. being granted the lock (grant_msg is pending at C)
+# 3. holding the lock (holds_lock(C) is true)
+# 4. releasing the lock (unlock_msg is pending at the server from C)
+#
+# States 2-4 are mutually exclusive at each client C.
+# Also, if any client is in a state 2-4, then no other client is in any state 2-4.
+
+# If any client is in a state 2-4, then held is true at the server.
+conjecture grant_msg(X) -> held
+conjecture holds_lock(X) -> held
+conjecture unlock_msg(X) -> held
+
+# No two clients are ever in different states 2-4.
+conjecture ~(grant_msg(X) & holds_lock(Y))
+conjecture ~(unlock_msg(X) & holds_lock(Y))
+conjecture ~(unlock_msg(X) & grant_msg(Y))
+
+# At most one client is in state 2 or 4.
+# (The original safety property also says at most one client is in state 3.)
+conjecture grant_msg(X) & grant_msg(Y) -> X = Y
+conjecture unlock_msg(X) & unlock_msg(Y) -> X = Y
+
+
+
+
+
+
