@@ -1,0 +1,112 @@
+#lang ivy1.7
+
+# The Verdi lock service example.
+
+type node
+
+relation lock_msg(N:node)
+relation unlock_msg(N:node)
+relation grant_msg(N:node)
+
+relation holds_lock(N: node)
+
+relation held
+
+type tag = {tag_server, tag_grant, tag_client, tag_unlock}
+
+# ghost state to track the automaton
+individual the_tag : tag
+individual the_client : node
+
+after init {
+    lock_msg(N) := false;
+    unlock_msg(N) := false;
+    grant_msg(N) := false;
+    holds_lock(N) := false;
+    held := false;
+
+    the_tag := tag_server;
+}
+
+action lock(n: node) = {
+    lock_msg(n) := true;
+}
+export lock
+
+action unlock(n: node) = {
+    require holds_lock(n);
+    holds_lock(n) := false;
+    unlock_msg(n) := true;
+
+    the_tag := tag_unlock;
+}
+export unlock
+
+action recv_lock(sender: node) = {
+    require lock_msg(sender);
+    require ~held;
+    held := true;
+    lock_msg(sender) := false;
+    grant_msg(sender) := true;
+
+    the_tag := tag_grant;
+    the_client := sender;
+}
+export recv_lock
+
+action recv_grant(n: node) = {
+    require grant_msg(n);
+    grant_msg(n) := false;
+    holds_lock(n) := true;
+
+    the_tag := tag_client;
+}
+export recv_grant
+
+action recv_unlock(sender: node) = {
+    require unlock_msg(sender);
+    unlock_msg(sender) := false;
+    held := false;
+
+    the_tag := tag_server;
+}
+export recv_unlock
+
+# Mutual exclusion: No two clients think they hold the lock simultaneously.
+# This is a corollary of the conjectures about tag_client below.
+#
+# conjecture holds_lock(X) & holds_lock(Y) -> X = Y
+
+conjecture the_tag = tag_server -> (
+    ~held &
+    ~grant_msg(N) &
+    ~holds_lock(N) &
+    ~unlock_msg(N)
+)
+
+conjecture the_tag = tag_grant -> (
+    held &
+    (grant_msg(N) -> N = the_client) &
+    ~holds_lock(N) &
+    ~unlock_msg(N)
+)
+
+conjecture the_tag = tag_client -> (
+    held &
+    ~grant_msg(N) &
+    (holds_lock(N) -> N = the_client) &
+    ~unlock_msg(N)
+)
+
+conjecture the_tag = tag_unlock -> (
+    held &
+    ~grant_msg(N) &
+    ~holds_lock(N) &
+    (unlock_msg(N) -> N = the_client)
+)
+
+
+action corollaries = {
+    assert holds_lock(X) & holds_lock(Y) -> X = Y;
+}
+export corollaries
