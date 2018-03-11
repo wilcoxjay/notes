@@ -14,18 +14,12 @@ relation held
 
 type tag = {tag_server, tag_grant, tag_client, tag_unlock}
 
-# ghost state to track the automaton
-individual the_tag : tag
-individual the_client : node
-
 after init {
     lock_msg(N) := false;
     unlock_msg(N) := false;
     grant_msg(N) := false;
     holds_lock(N) := false;
     held := false;
-
-    the_tag := tag_server;
 }
 
 action lock(n: node) = {
@@ -37,8 +31,6 @@ action unlock(n: node) = {
     require holds_lock(n);
     holds_lock(n) := false;
     unlock_msg(n) := true;
-
-    the_tag := tag_unlock;
 }
 export unlock
 
@@ -48,9 +40,6 @@ action recv_lock(sender: node) = {
     held := true;
     lock_msg(sender) := false;
     grant_msg(sender) := true;
-
-    the_tag := tag_grant;
-    the_client := sender;
 }
 export recv_lock
 
@@ -58,8 +47,6 @@ action recv_grant(n: node) = {
     require grant_msg(n);
     grant_msg(n) := false;
     holds_lock(n) := true;
-
-    the_tag := tag_client;
 }
 export recv_grant
 
@@ -67,44 +54,35 @@ action recv_unlock(sender: node) = {
     require unlock_msg(sender);
     unlock_msg(sender) := false;
     held := false;
-
-    the_tag := tag_server;
 }
 export recv_unlock
 
 # Mutual exclusion: No two clients think they hold the lock simultaneously.
-# This is a corollary of the conjectures about tag_client below.
+# This is a corollary of the conjecture below.
 #
 # conjecture holds_lock(X) & holds_lock(Y) -> X = Y
 
-conjecture the_tag = tag_server -> (
+conjecture (
     ~held &
-    ~grant_msg(N) &
-    ~holds_lock(N) &
-    ~unlock_msg(N)
-)
-
-conjecture the_tag = tag_grant -> (
+    (forall N. ~grant_msg(N)) &
+    (forall N. ~holds_lock(N)) &
+    (forall N. ~unlock_msg(N))
+) | (
     held &
-    (grant_msg(N) -> N = the_client) &
-    ~holds_lock(N) &
-    ~unlock_msg(N)
-)
-
-conjecture the_tag = tag_client -> (
+    (forall N1, N2. grant_msg(N1) & grant_msg(N2) -> N1 = N2) &
+    (forall N. ~holds_lock(N)) &
+    (forall N. ~unlock_msg(N))
+) | (
     held &
-    ~grant_msg(N) &
-    (holds_lock(N) -> N = the_client) &
-    ~unlock_msg(N)
-)
-
-conjecture the_tag = tag_unlock -> (
+    (forall N. ~grant_msg(N)) &
+    (forall N1, N2. holds_lock(N1) & holds_lock(N2) -> N1 = N2) &
+    (forall N. ~unlock_msg(N))
+) | (
     held &
-    ~grant_msg(N) &
-    ~holds_lock(N) &
-    (unlock_msg(N) -> N = the_client)
+    (forall N. ~grant_msg(N)) &
+    (forall N. ~holds_lock(N)) &
+    (forall N1, N2. unlock_msg(N1) & unlock_msg(N2) -> N1 = N2)
 )
-
 
 action corollaries = {
     assert holds_lock(X) & holds_lock(Y) -> X = Y;
