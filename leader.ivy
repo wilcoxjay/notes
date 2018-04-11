@@ -1,0 +1,62 @@
+#lang ivy1.7
+
+type node
+type quorum
+
+relation member(N: node, Q: quorum)
+
+axiom forall Q1: quorum, Q2: quorum. exists N: node. member(N, Q1) & member(N, Q2)
+
+relation votes(N: node, V: node)
+relation leader(N: node)
+relation voted(N: node)
+
+relation request_vote_msg(N1: node, N2: node)
+relation vote_msg(N1: node, N2: node)
+
+individual voting_quorum : quorum
+
+after init {
+    votes(N,V) := false;
+    leader(N) := false;
+    request_vote_msg(N1,N2) := false;
+    vote_msg(N1,N2) := false;
+}
+
+action send_request_vote(n: node) = {
+    request_vote_msg(n, N) := true
+}
+export send_request_vote
+
+action receive_request_vote(n: node) = {
+    assume ~voted(n);
+    var sender: node;
+    assume request_vote_msg(sender, n);
+    voted(n) := true;
+    vote_msg(n, sender) := true;
+}
+export receive_request_vote
+
+action receive_vote(n: node) = {
+    var sender: node;
+    assume vote_msg(sender, n);
+    votes(n, sender) := true;
+}
+export receive_vote
+
+action become_leader(n: node) = {
+    assume exists Q. forall N. member(N, Q) -> votes(n, N);
+    voting_quorum := *;
+    assume forall N. member(N, voting_quorum) -> votes(n, N);
+    leader(n) := true;
+}
+export become_leader
+
+conjecture votes(N2, N1) -> voted(N1)
+conjecture vote_msg(N1, N2) -> voted(N1)
+conjecture vote_msg(N1, N2) & vote_msg(N1, N3) -> N2 = N3
+conjecture vote_msg(N1, N2) & votes(N3, N1) -> N2 = N3
+conjecture votes(N2, N1) & votes(N3, N1) -> N2 = N3
+conjecture leader(N1) -> forall N2. member(N2, voting_quorum) -> votes(N1, N2)
+conjecture leader(N1) & leader(N2) -> N1 = N2
+
