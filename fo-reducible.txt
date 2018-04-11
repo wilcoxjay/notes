@@ -5,7 +5,7 @@ Theorem. Connectivity is not expressible in FO.
 Proof. Suppose \phi is a sentence over the relational vocabulary
 consisting of a single binary relation E such that
 
-    (V,E) |= \phi  <==>  (V,E) is connected
+    (V,E) |= \phi  <==>  (V,E) is connected.
 
 Then we construct a sentence \psi over the vocabulary < such that
 
@@ -15,19 +15,20 @@ Define a formula \gamma(x, y) over the vocabulary < by
 
     \gamma(x, y) := (y is the successor of the successor of x via <) \vee
                     (x is the maximal element of < and y is the second to minimal element of <) \vee
-                    (x is the second to maximal element of < and y is the minimal element of <)
+                    (x is the second to maximal element of < and y is the minimal element of <).
 
-(Note that each of these disjuncts can be written in FO over the vocabulary <.)
+Note that each of these disjuncts can be written in FO over the vocabulary <.
 
 Then let \psi := \phi[\gamma / E]. That is, \psi is a sentence
-constructed by substituting \gamma for E everywhere. Thus, while \phi
-was a formula over the vocabulary E, \psi is a formula over the
+constructed by substituting \gamma for E everywhere in \phi. Thus, while
+\phi was a formula over the vocabulary E, \psi is a formula over the
 vocabulary < (because we replaced the only relation symbol, E, with a
 formula \gamma over the vocabulary <).
 
 Then notice (by staring at a picture for various small n) that \psi is
 true iff n is odd. But this contradicts the fact that evenness (or, by
-negation, oddness) is not expressible in FO.
+negation, oddness) is not expressible in FO. We conclude that \phi 
+must not exist, so Connectivity is not FO expressible.
 
 ------------------------------------------------------------
 
@@ -35,4 +36,4 @@ The "reduction" here is really the formula \gamma, which shows how to
 translate a supposed formula for answering connectivity queries into a
 formula for answering evenness queries, by substituting \gamma for E
 in the supposed connectivity formula.  The reduction is a FO-reduction
-because \gamma is expressible in FO.
+because \gamma itself is expressible in FO.
