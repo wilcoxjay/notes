@@ -40,7 +40,7 @@ Fixpoint all_of_height (n : nat) : list t :=
 
 Lemma all_of_height_complete :
   forall e n,
-    height e <= n -> 
+    height e <= n ->
     In e (all_of_height n).
 Proof.
   induction e; simpl; destruct n; intros; try omega; simpl; intuition.
@@ -205,7 +205,7 @@ Section cozy.
 
   Lemma run_inr :
     forall n s e,
-      inv s -> 
+      inv s ->
       run n s = inr e ->
       forall x, P x e.
   Proof.
@@ -216,13 +216,51 @@ Section cozy.
       eauto using step_inr.
   Qed.
 
-  Lemma all_heights :
-    forall h,
-      exists n,
-        (exists l, run n state.init = inl (state.Make h (expr.all_of_height h) l)) \/
-        (exists e, run n state.init = inr e).
+  Lemma run_skipn :
+    forall n s,
+      n <= List.length s.(state.queue) ->
+      (exists l, run n s = inl (state.Make s.(state.height)
+                                      (skipn n s.(state.queue))
+                                      (l ++ s.(state.inputs)))) \/
+      (exists e, run n s = inr e).
   Proof.
-  Admitted.
+    induction n; intros s LE.
+    - left. exists []. destruct s; reflexivity.
+    - set (r := run (S n) s).
+      cbn [run] in *.
+      unfold step in *.
+      destruct state.queue eqn:EQ; [simpl in *; omega|].
+      destruct check_inputs.
+      + destruct P_oracle as [[x Hx]|].
+        * match goal with
+          | [ _ := run n ?s |- _ ] =>
+            specialize (IHn s ltac:(simpl in *; omega))
+          end.
+          subst r.
+          simpl in *.
+          destruct IHn as [[l0 Run]|[e0 Run]]; rewrite Run.
+          -- left.
+             exists (l0 ++ [x]).
+             now rewrite app_ass.
+          -- right.
+             eauto.
+        * right. subst r. eauto.
+      + match goal with
+        | [ _ := run n ?s |- _ ] =>
+          specialize (IHn s ltac:(simpl in *; omega))
+        end.
+        subst r.
+        simpl in *.
+        destruct IHn as [[l0 Run]|[e0 Run]]; rewrite Run; eauto.
+  Qed.
+
+  Lemma skipn_length :
+    forall A n (l : list A),
+      List.length l <= n ->
+      skipn n l = [].
+  Proof.
+    induction n; destruct l; simpl; intros LE; try omega; auto with *.
+  Qed.
 
   Lemma finish_this_height :
     forall s,
@@ -230,7 +268,12 @@ Section cozy.
         (exists l, run n s = inl (state.Make s.(state.height) [] (l ++ s.(state.inputs)))) \/
         (exists e, run n s = inr e).
   Proof.
-  Admitted.
+    intros s.
+    destruct (run_skipn (List.length s.(state.queue)) s ltac:(omega)) as [[l Run]|[e Run]].
+    - rewrite skipn_length in Run by omega.
+      eauto.
+    - eauto.
+  Qed.
 
   Lemma run_plus :
     forall n1 n2 s,
@@ -243,6 +286,29 @@ Section cozy.
     induction n1; simpl; intros n2 s.
     - reflexivity.
     - destruct step; auto.
+  Qed.
+
+  Lemma all_heights :
+    forall h,
+      exists n,
+        (exists l, run n state.init = inl (state.Make h (expr.all_of_height h) l)) \/
+        (exists e, run n state.init = inr e).
+  Proof.
+    induction h.
+    - exists 0. left. exists []. reflexivity.
+    - destruct IHh as [n1 [[l1 Run1]|[e Run]]].
+      + match goal with
+        | [ _ : _ = inl ?s |- _ ] =>
+          destruct (finish_this_height s) as [n2 [[l2 Run2]|[e Run]]]
+        end.
+        * exists (n1 + (n2 + 1)).
+          left.
+          eexists.
+          now rewrite run_plus, Run1, run_plus, Run2.
+        * exists (n1 + n2).
+          right.
+          rewrite run_plus, Run1, Run. eauto.
+      + exists n1. right. eauto.
   Qed.
 
   Theorem completeness :
@@ -275,7 +341,3 @@ Section cozy.
         split; eauto using run_inr, init_inv.
   Qed.
 End cozy.
-
-    
-    
-    
