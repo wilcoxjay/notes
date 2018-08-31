@@ -29,19 +29,68 @@ Fixpoint eval (the_var : nat) (e : t) : nat :=
 Definition sem_eq (e1 e2 : t) : Prop :=
   (forall a, expr.eval a e1 = expr.eval a e2).
 
-Fixpoint all_of_height (n : nat) : list t :=
+Fixpoint all_up_to_height (n : nat) : list t :=
   match n with
   | 0 => []
   | S n =>
     zero :: one :: var ::
-         let l := all_of_height n in
+         let l := all_up_to_height n in
          flat_map (fun a => map (plus a) l) l
   end.
 
-Lemma all_of_height_complete :
+Lemma all_up_to_height_sanify :
+  forall n e,
+    In e (all_up_to_height n) ->
+    expr.height e <= n.
+Proof.
+  induction n; simpl; intros e; [now intuition|].
+  intros [?|[?|[?|I]]]; subst; simpl; auto with *.
+  rewrite in_flat_map in I.
+  destruct I as [l [Il I]].
+  rewrite in_map_iff in I.
+  destruct I as [r [E Ir]].
+  subst e.
+  simpl.
+  apply IHn in Il.
+  apply IHn in Ir.
+  zify. omega.
+Qed.
+
+Fixpoint all_of_exactly_height (n : nat) : list t :=
+  match n with
+  | 0 => []
+  | 1 => [zero; one; var]
+  | S n =>
+    (* takes advantage of commutativity of plus *)
+    flat_map (fun a => map (plus a) (all_of_exactly_height n)) (all_up_to_height n)
+  end.
+
+Lemma all_of_exactly_height_sanity :
+  forall n e,
+    In e (all_of_exactly_height n) ->
+    expr.height e = n.
+Proof.
+  induction n; simpl; intros e I; intuition.
+  destruct n.
+  - destruct I as [|[|[|[]]]]; subst; reflexivity.
+  - rewrite in_flat_map in I.
+    destruct I as [l [Il I]].
+    rewrite in_map_iff in I.
+    destruct I as [r [E Ir]].
+    subst e.
+    simpl.
+    apply all_up_to_height_sanify in Il.
+    apply IHn in Ir.
+    zify. omega.
+Qed.
+
+Definition eq_mod (l : list nat) (e1 e2 : t) : Prop :=
+  Forall (fun x => expr.eval x e1 = expr.eval x e2) l.
+
+Lemma all_up_to_height_complete :
   forall e n,
     height e <= n ->
-    In e (all_of_height n).
+    In e (all_up_to_height n).
 Proof.
   induction e; simpl; destruct n; intros; try omega; simpl; intuition.
   do 3 right.
@@ -53,6 +102,85 @@ Proof.
   - apply in_map.
     apply IHe2.
     zify. omega.
+Qed.
+
+Lemma sem_eq_refl :
+  forall e,
+    sem_eq e e.
+Proof.
+  intros.
+  red.
+  auto.
+Qed.
+
+Lemma sem_eq_plus_cong :
+  forall e1 e1' e2 e2',
+    sem_eq e1 e1' ->
+    sem_eq e2 e2' ->
+    sem_eq (plus e1 e2) (plus e1' e2').
+Proof.
+  unfold sem_eq.
+  simpl.
+  intros e1 e1' e2 e2' H1 H2 a.
+  now rewrite H1, H2.
+Qed.
+
+Lemma sem_eq_plus_comm :
+  forall e1 e2,
+    sem_eq (plus e1 e2) (plus e2 e1).
+Proof.
+  unfold sem_eq.
+  simpl.
+  intros.
+  omega.
+Qed.
+
+Lemma sem_eq_trans :
+  forall a b c,
+    sem_eq a b ->
+    sem_eq b c ->
+    sem_eq a c.
+Proof.
+  unfold sem_eq.
+  intros a b c AB BC x.
+  now rewrite AB, BC.
+Qed.
+
+Lemma all_of_exactly_height_complete :
+  forall e n,
+    height e = n ->
+    exists e',
+      In e' (all_of_exactly_height n) /\
+      sem_eq e e'.
+Proof.
+  induction e; simpl; intros n H; subst n.
+  - simpl. eauto using sem_eq_refl.
+  - simpl. eauto using sem_eq_refl.
+  - simpl. eauto 7 using sem_eq_refl.
+  - cbn [all_of_exactly_height].
+    apply Max.max_case_strong with (n := height e1) (m := height e2); intro LE;
+      match goal with
+      | [ _ : _ <= height ?e |- _ ] =>
+        assert (1 <= height e) by (destruct e; simpl; omega);
+        destruct (height e) eqn:?; [simpl; omega|];
+        match goal with
+        | [ IH : context [e] |- _ ] =>
+          specialize (IH _ eq_refl);
+          destruct IH as [e' [I SE]]
+        end;
+        match goal with
+        | [ H: context [height ?e2] |- _ ] =>
+          pose proof (all_up_to_height_complete e2 (S n) ltac:(assumption))
+        end;
+        eexists;
+        split;
+        [ rewrite in_flat_map;
+          eexists; (split; [eassumption|]);
+          rewrite in_map_iff;
+          eexists; split; [reflexivity|eassumption]
+        | now eauto using sem_eq_trans, sem_eq_plus_comm, sem_eq_plus_cong, sem_eq_refl
+        ]
+      end.
 Qed.
 
 End expr.
@@ -96,7 +224,7 @@ Section cozy.
   Definition step (s : state.t) : state.t + expr.t :=
     match s.(state.queue) with
     | [] => inl (state.Make (S s.(state.height))
-                           (expr.all_of_height (S s.(state.height)))
+                           (expr.all_of_exactly_height (S s.(state.height)))
                            s.(state.inputs))
     | e :: q =>
       match check_inputs e s.(state.inputs) with
@@ -122,7 +250,7 @@ Section cozy.
   Definition inv (s : state.t) : Prop :=
     forall e,
       expr.height e <= s.(state.height) ->
-      (exists x, ~P x e) \/ In e s.(state.queue).
+      (exists x, ~P x e) \/ (exists e', In e' s.(state.queue) /\ expr.sem_eq e e').
 
   Lemma init_inv :
     inv state.init.
@@ -162,8 +290,16 @@ Section cozy.
         assert (x = y) by (now inversion H); clear H; subst
       end.
       unfold inv.
-      cbn -[In expr.all_of_height].
-      auto using expr.all_of_height_complete.
+      cbn -[In expr.all_of_exactly_height].
+      intros e LE.
+      inversion LE.
+      + auto using expr.all_of_exactly_height_complete.
+      + unfold inv in Inv.
+        rewrite EQ in *.
+        specialize (Inv e H0).
+        destruct Inv as [[x HP]|[e' [I SE]]].
+        * eauto.
+        * intuition.
     - destruct check_inputs.
       + destruct P_oracle as [[x pf]|]; [|discriminate].
         inversion Step; subst; clear Step.
@@ -173,9 +309,13 @@ Section cozy.
         destruct (Inv e Height) as [[x0 pf0]| I].
         * now eauto.
         * rewrite EQ in I.
-           simpl in I. destruct I.
-           -- subst. eauto.
-           -- auto.
+          simpl in I. destruct I as [e' [[?|I] SE]].
+          -- subst. left. exists x.
+             intro C.
+             unfold extensional in P_ext.
+             rewrite P_ext in C by eauto.
+             auto.
+          -- eauto.
       + inversion Step; subst; clear Step.
         unfold inv in *.
         simpl.
@@ -183,12 +323,16 @@ Section cozy.
         destruct (Inv e2 Height2) as [[x pf]| I].
         * now eauto.
         * rewrite EQ in I.
-          simpl in I. destruct I.
+          simpl in I. destruct I as [e' [[?|I] SE]].
           -- subst.
              rewrite Exists_exists in e.
              destruct e as [x0 [_ pf0]].
-             eauto.
-          -- auto.
+             left. exists x0.
+             intro C.
+             unfold extensional in P_ext.
+             rewrite P_ext in C by eauto.
+             auto.
+          -- eauto.
   Qed.
 
   Lemma run_inl :
@@ -291,7 +435,7 @@ Section cozy.
   Lemma all_heights :
     forall h,
       exists n,
-        (exists l, run n state.init = inl (state.Make h (expr.all_of_height h) l)) \/
+        (exists l, run n state.init = inl (state.Make h (expr.all_of_exactly_height h) l)) \/
         (exists e, run n state.init = inr e).
   Proof.
     induction h.
