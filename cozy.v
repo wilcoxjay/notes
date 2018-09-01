@@ -381,7 +381,21 @@ Proof.
       auto.
 Qed.
 
-Lemma add_all_to_env :
+Lemma fold_left_ind :
+  forall A B (P : A -> Prop) (Q : B -> Prop) (f : A -> B -> A) l z,
+    (forall a b, P a -> Q b -> P (f a b)) ->
+    Forall Q l ->
+    P z ->
+    P (fold_left f l z).
+Proof.
+  intros A B P Q f.
+  induction l; intros z Pf F Pz; cbn [fold_left].
+  - assumption.
+  - inversion F; subst; clear F.
+    eauto.
+Qed.
+
+Lemma add_all_to_env_sanity :
   forall n l es E,
     (forall os e, env.get os E = Some e -> expr.height e <= n) ->
     Forall (fun e => expr.height e <= n) es ->
@@ -389,15 +403,41 @@ Lemma add_all_to_env :
       env.get os (fold_left (add_to_env_mod l) es E) = Some e ->
       expr.height e <= n.
 Proof.
-  intros n l.
-  induction es; cbn[fold_left]; intros E GetE Fes os e Get_fold.
-  - eauto.
-  - inversion Fes; subst; clear Fes.
-    eapply IHes; [| |now apply Get_fold]; [|assumption].
-    clear os e Get_fold.
-    intros os e Get.
-    apply get_add_to_env_mod in Get.
-    destruct Get; subst; eauto.
+  intros n l es E GetE F.
+  apply fold_left_ind with (Q := (fun e => expr.height e <= n)); auto.
+  clear es E GetE F.
+  intros E e GetE He os e1 Get1.
+  apply get_add_to_env_mod in Get1.
+  destruct Get1; subst; eauto.
+Qed.
+
+Lemma Forall_app :
+  forall A (P : A -> Prop) l1 l2,
+    Forall P l1 ->
+    Forall P l2 ->
+    Forall P (l1 ++ l2).
+Proof.
+  induction 1; intros F2; simpl.
+  - assumption.
+  - constructor; auto.
+Qed.
+
+Lemma Forall_flatmap :
+  forall A B (f : A -> list B) (P : B -> Prop) l,
+    Forall (fun a => Forall P (f a)) l ->
+    Forall P (flat_map f l).
+Proof.
+  induction 1; simpl.
+  - constructor.
+  - apply Forall_app; auto.
+Qed.
+
+Lemma Forall_map :
+  forall A B (f : A -> B) (P : B -> Prop) l,
+    Forall (fun a => P (f a)) l ->
+    Forall P (map f l).
+Proof.
+  induction 1; simpl; constructor; auto.
 Qed.
 
 Lemma all_up_to_height_mod_sanity :
@@ -405,33 +445,84 @@ Lemma all_up_to_height_mod_sanity :
     env.get os (all_up_to_height_mod l n) = Some e ->
     expr.height e <= n.
 Proof.
-  induction n; simpl; intros os e Get.
-  - now rewrite env.ge in Get.
-  - eapply add_all_to_env; try apply Get.
-    + clear os e Get.
-      intros os e Get.
-      apply get_add_to_env_mod in Get.
-      destruct Get as [|Get]; [subst e; simpl; omega|].
-      apply get_add_to_env_mod in Get.
-      destruct Get as [|Get]; [subst e; simpl; omega|].
-      apply get_add_to_env_mod in Get.
-      destruct Get as [|Get]; [subst e; simpl; omega|].
-      eauto.
-    + clear os e Get.
-      apply Forall_forall.
-      intros e I.
-      rewrite in_flat_map in I.
-      destruct I as [e1 [I1 I]].
-      rewrite in_map_iff in I.
-      destruct I as [e2 [EQ I2]].
-      subst e.
-      apply env.in_values in I1.
-      destruct I1 as [k1 Get1].
-      apply env.in_values in I2.
-      destruct I2 as [k2 Get2].
-      apply IHn in Get1.
-      apply IHn in Get2.
-      simpl. zify. omega.
+  induction n; simpl; intros os e Get;
+    [now rewrite env.ge in Get|].
+  eapply add_all_to_env_sanity; try apply Get.
+  - clear os e Get.
+    intros os e Get.
+    repeat
+    (apply get_add_to_env_mod in Get;
+     destruct Get as [|Get]; [subst e; simpl; omega|]).
+    eauto.
+  - clear os e Get.
+    apply Forall_flatmap.
+    apply Forall_forall.
+    intros e1 I1.
+    apply Forall_map.
+    apply Forall_forall.
+    intros e2 I2.
+    apply env.in_values in I1.
+    destruct I1 as [k1 Get1].
+    apply env.in_values in I2.
+    destruct I2 as [k2 Get2].
+    apply IHn in Get1.
+    apply IHn in Get2.
+    simpl. zify. omega.
+Qed.
+
+Lemma add_to_env_mod_sound :
+  forall l E e os,
+    (forall e, env.get os E = Some e -> map (fun x => eval x e) l = os) ->
+    forall e',
+      env.get os (add_to_env_mod l E e) = Some e' ->
+      map (fun x => expr.eval x e') l = os.
+Proof.
+  unfold add_to_env_mod in *.
+  intros l E e os GetE e1 Get1.
+  destruct (env.get (map _ _) E) eqn:EQ; [now auto|].
+  set (os' := map (fun a : nat => eval a e) l) in *.
+  destruct (list_eq_dec eq_nat_dec os os').
+  - subst os os'. rewrite env.gss in Get1.
+    inversion Get1. subst. reflexivity.
+  - rewrite env.gso in Get1 by congruence.
+    eauto.
+Qed.
+
+Lemma add_all_to_env_sound :
+  forall l es E,
+    (forall os e, env.get os E = Some e -> List.map (fun x => expr.eval x e) l = os) ->
+    forall os e,
+      env.get os (fold_left (add_to_env_mod l) es E) = Some e ->
+      List.map (fun x => expr.eval x e) l = os.
+Proof.
+  intros l es E GetE os.
+  apply fold_left_ind with (Q := fun _ => True); auto.
+  - clear es E GetE.
+    intros E e GetE _ e1 Get1.
+    eapply add_to_env_mod_sound; eauto.
+  - induction es; constructor; auto.
+Qed.
+
+Lemma all_up_to_height_mod_sound :
+  forall l n os e,
+    env.get os (all_up_to_height_mod l n) = Some e ->
+    List.map (fun x => expr.eval x e) l = os.
+Proof.
+  induction n; simpl; intros os e Get;
+    [now rewrite env.ge in Get|].
+  eapply add_all_to_env_sound in Get; try apply Get.
+  clear os e Get.
+  intros os e Get.
+  apply add_to_env_mod_sound in Get; [assumption|].
+  clear e Get.
+  intros e Get.
+  apply add_to_env_mod_sound in Get; [assumption|].
+  clear e Get.
+  intros e Get.
+  apply add_to_env_mod_sound in Get; [assumption|].
+  clear e Get.
+  intros e Get.
+  auto.
 Qed.
 
 End expr.
