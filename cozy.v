@@ -187,7 +187,7 @@ Fixpoint all_up_to_height (n : nat) : list t :=
          flat_map (fun a => map (plus a) l) l
   end.
 
-Lemma all_up_to_height_sanify :
+Lemma all_up_to_height_sanity :
   forall n e,
     In e (all_up_to_height n) ->
     expr.height e <= n.
@@ -228,7 +228,7 @@ Proof.
     destruct I as [r [E Ir]].
     subst e.
     simpl.
-    apply all_up_to_height_sanify in Il.
+    apply all_up_to_height_sanity in Il.
     apply IHn in Ir.
     zify. omega.
 Qed.
