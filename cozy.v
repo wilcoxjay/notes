@@ -233,9 +233,6 @@ Proof.
     zify. omega.
 Qed.
 
-Definition eq_mod (l : list nat) (e1 e2 : t) : Prop :=
-  Forall (fun x => expr.eval x e1 = expr.eval x e2) l.
-
 Lemma all_up_to_height_complete :
   forall e n,
     height e <= n ->
@@ -330,6 +327,111 @@ Proof.
         | now eauto using sem_eq_trans, sem_eq_plus_comm, sem_eq_plus_cong, sem_eq_refl
         ]
       end.
+Qed.
+
+Definition add_to_env_mod (l : list nat) (E : env.t t) (e : t) : env.t t :=
+  let outputs := List.map (fun a => expr.eval a e) l in
+  match env.get outputs E with
+  | None => env.set outputs e E
+  | Some _ => E
+  end.
+
+Fixpoint all_up_to_height_mod (l : list nat) (n : nat) : env.t t :=
+  match n with
+  | 0 => env.empty
+  | S n =>
+    let E := all_up_to_height_mod l n in
+    List.fold_left (add_to_env_mod l)
+    (zero :: one :: var ::
+         let es := env.values E in
+         flat_map (fun a => map (plus a) es) es)
+    E
+  end.
+
+Definition eq_mod (l : list nat) (e1 e2 : t) : Prop :=
+  Forall (fun x => expr.eval x e1 = expr.eval x e2) l.
+
+Lemma sem_eq_eq_mod :
+  forall e1 e2,
+    sem_eq e1 e2 ->
+    forall l, eq_mod l e1 e2.
+Proof.
+  intros e1 e2 SE l.
+  unfold eq_mod.
+  apply Forall_forall.
+  intros x I.
+  apply SE.
+Qed.
+
+Lemma get_add_to_env_mod :
+  forall os l E e e',
+    env.get os (add_to_env_mod l E e) = Some e' ->
+    e = e' \/ env.get os E = Some e'.
+Proof.
+  unfold add_to_env_mod.
+  intros os l E e e' Get.
+  destruct (env.get _ E) eqn:EQ.
+  - auto.
+  - set (os' := map (fun a : nat => eval a e) l) in *.
+    destruct (list_eq_dec eq_nat_dec os os').
+    + subst os.
+      rewrite env.gss in Get.
+      left. congruence.
+    + rewrite env.gso in Get by congruence.
+      auto.
+Qed.
+
+Lemma add_all_to_env :
+  forall n l es E,
+    (forall os e, env.get os E = Some e -> expr.height e <= n) ->
+    Forall (fun e => expr.height e <= n) es ->
+    forall os e,
+      env.get os (fold_left (add_to_env_mod l) es E) = Some e ->
+      expr.height e <= n.
+Proof.
+  intros n l.
+  induction es; cbn[fold_left]; intros E GetE Fes os e Get_fold.
+  - eauto.
+  - inversion Fes; subst; clear Fes.
+    eapply IHes; [| |now apply Get_fold]; [|assumption].
+    clear os e Get_fold.
+    intros os e Get.
+    apply get_add_to_env_mod in Get.
+    destruct Get; subst; eauto.
+Qed.
+
+Lemma all_up_to_height_mod_sanity :
+  forall l n os e,
+    env.get os (all_up_to_height_mod l n) = Some e ->
+    expr.height e <= n.
+Proof.
+  induction n; simpl; intros os e Get.
+  - now rewrite env.ge in Get.
+  - eapply add_all_to_env; try apply Get.
+    + clear os e Get.
+      intros os e Get.
+      apply get_add_to_env_mod in Get.
+      destruct Get as [|Get]; [subst e; simpl; omega|].
+      apply get_add_to_env_mod in Get.
+      destruct Get as [|Get]; [subst e; simpl; omega|].
+      apply get_add_to_env_mod in Get.
+      destruct Get as [|Get]; [subst e; simpl; omega|].
+      eauto.
+    + clear os e Get.
+      apply Forall_forall.
+      intros e I.
+      rewrite in_flat_map in I.
+      destruct I as [e1 [I1 I]].
+      rewrite in_map_iff in I.
+      destruct I as [e2 [EQ I2]].
+      subst e.
+      apply env.in_values in I1.
+      destruct I1 as [k1 Get1].
+      apply env.in_values in I2.
+      destruct I2 as [k2 Get2].
+      apply IHn in Get1.
+      apply IHn in Get2.
+      simpl. zify. omega.
 Qed.
 
 End expr.
