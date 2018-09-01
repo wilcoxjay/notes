@@ -240,6 +240,9 @@ Module sortedmap.
       - apply maximum_key_None in E. subst. auto.
     Qed.
 
+    Definition values' V (m : t' V) : list V :=
+      List.map snd m.
+
     Definition tuple_lt {V} (p1 p2 : K * V) : Prop :=
       fst p1 < fst p2.
 
@@ -358,6 +361,8 @@ Module sortedmap.
     Definition fresh V (m : t V) : K :=
       fresh' (proj1_sig m).
 
+    Definition values V (m : t V) : list V :=
+      values' (proj1_sig m).
 
     Lemma ge : forall V k, get k (empty V) = None.
     Proof. reflexivity. Qed.
@@ -391,7 +396,6 @@ Module sortedmap.
       simpl.
       apply gss'.
     Qed.
-
 
     Lemma gso':
       forall V (k1 k2 : K) (v : V) m, k1 <> k2 -> get' k2 (set' k1 v m) = get' k2 m.
@@ -555,6 +559,44 @@ Module sortedmap.
           * assert (k0 = k1) by congruence. subst k1.
             now erewrite !get'_hdrel by eauto.
           * auto.
+    Qed.
+
+    Lemma in_values' :
+      forall V (v : V) (m : t' V),
+        Sorted tuple_lt m ->
+        In v (values' m) ->
+        exists k, get' k m = Some v.
+    Proof.
+      unfold values'.
+      intros V v.
+      induction m as [|[]]; simpl; intros S I; intuition.
+      - subst v0.
+        exists k.
+        decide (k < k) as LT.
+        + exfalso. eapply StrictOrder_Irreflexive. now apply LT.
+        + destruct equiv_dec; congruence.
+      - inversion S; subst; clear S.
+        specialize (IHm ltac:(assumption) ltac:(assumption)).
+        destruct IHm as [k1 Get1].
+        exists k1.
+        decide (k1 < k).
+        + now erewrite get'_hdrel in Get1 by eauto using HdRel_trans.
+        + destruct equiv_dec; [|now auto].
+          unfold equiv in *.
+          subst k1.
+          now erewrite get'_hdrel in Get1 by eauto using HdRel_trans.
+    Qed.
+
+    Lemma in_values :
+      forall V (v : V) (m : t V),
+        In v (values m) ->
+        exists k, get k m = Some v.
+    Proof.
+      unfold get, values.
+      intros V v m I.
+      apply in_values' in I.
+      assumption.
+      apply proj2_sig.
     Qed.
 
     Global Instance sortedmap : map.class K := map.Make ge gss gso grs gro gf ext.
