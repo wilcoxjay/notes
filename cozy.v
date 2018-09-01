@@ -1,5 +1,154 @@
-Require Import List Omega.
+Require Import List Omega Relations ExtensionalMaps RelationClasses DecidableClass EquivDec TotalOrder.
 Import ListNotations.
+
+Section Ltl_instances.
+  Context (A : Set) R `(SO_R : StrictOrder A R).
+
+  Global Instance Ltl_StrictOrder : StrictOrder (Ltl A R).
+  constructor.
+  - red.
+    intro.
+    intro.
+    induction x; inversion H; subst.
+    eapply StrictOrder_Irreflexive; eauto.
+    eauto.
+  - intros x y z XY YZ.
+    generalize dependent z.
+    induction XY; intros z YZ.
+    + inversion YZ; subst; constructor.
+    + inversion YZ; subst.
+      * econstructor; eauto using StrictOrder_Transitive.
+      * econstructor; eauto.
+    + inversion YZ; subst.
+      * econstructor; eauto.
+      * eauto using Lt_tl.
+  Qed.
+
+  Context (R_dec : forall x y, Decidable (R x y))
+          (EDK : EqDec A eq).
+
+  Global Instance Ltl_Decidable : forall x y, Decidable (Ltl A R x y).
+  induction x; destruct y.
+  - apply Build_Decidable with (Decidable_witness := false).
+    split; intro H; inversion H.
+  - apply Build_Decidable with (Decidable_witness := true).
+    split; auto.
+    intro H; clear H.
+    constructor.
+  - apply Build_Decidable with (Decidable_witness := false).
+    split; intro H; inversion H.
+  - destruct (R_dec a a0) as [[|] HR].
+    + apply Build_Decidable with (Decidable_witness := true).
+      split; auto.
+      intro H; clear H.
+      constructor; intuition.
+    + destruct (EDK a a0).
+      * compute in e. subst a0.
+        destruct (IHx y) as [[|] HLtl].
+        -- apply Build_Decidable with (Decidable_witness := true).
+           split; auto.
+           intro H; clear H.
+           apply Lt_tl.
+           intuition.
+        -- apply Build_Decidable with (Decidable_witness := false).
+           split; intro H; inversion H; subst; intuition.
+      * compute in c.
+        apply Build_Decidable with (Decidable_witness := false).
+        split; intro H; inversion H; subst; intuition.
+  Qed.
+
+  Global Instance Inhabited_list : Inhabited (list A).
+  constructor.
+  exact nil.
+  Defined.
+
+  Context (R_TO : TotalOrder R).
+
+  Hint Constructors Ltl.
+
+  Global Instance Ltl_TotalOrder : TotalOrder (Ltl A R).
+  constructor.
+  apply Ltl_StrictOrder.
+  induction x; destruct y as [|b y]; auto.
+  destruct (TotalOrder_trichotomy a b) as [|[|]]; auto.
+  destruct (IHx y) as [|[|]]; subst; auto.
+  Qed.
+
+  Context (I_A : Inhabited A)
+          (UO_A : UnboundedOrder R).
+
+  Definition list_bigger (l : list A) : list A :=
+    match l with
+    | [] => [Inhabited_witness]
+    | x :: xs => UnboundedOrder_bigger x :: xs
+    end.
+
+  Lemma list_bigger_ok :
+    forall l,
+      Ltl A R l (list_bigger l).
+  Proof.
+    destruct l; simpl.
+    - constructor.
+    - constructor.
+      apply UnboundedOrder_bigger_ok.
+  Qed.
+
+  Global Instance Ltl_UnboundedOrder : UnboundedOrder (Ltl A R).
+  apply Build_UnboundedOrder with (UnboundedOrder_bigger := list_bigger).
+  exact list_bigger_ok.
+  Defined.
+End Ltl_instances.
+
+(* Definition natlist_map : map.class (list nat) :=
+  sortedmap.sortedmap (lt := Ltl _ lt) _ _ _ _ _ _. *)
+
+Module env.
+  Definition t V := @sortedmap.t _ (Ltl _ lt) V.
+
+  Definition empty {V} : t V := @sortedmap.empty _ _ _.
+
+  Definition get {V} k (m : t V) : option V :=
+    sortedmap.get _ _ k m.
+
+  Definition set {V} k v (m : t V) : t V :=
+    sortedmap.set _ _ _ k v m.
+
+  Definition values {V} (m : t V) : list V :=
+    sortedmap.values m.
+
+  Lemma ge : forall V k, get k (@empty V) = None.
+  Proof.
+    intros.
+    unfold get, empty.
+    now rewrite sortedmap.ge.
+  Qed.
+
+  Lemma gss : forall V k (v : V) m, get k (set k v m) = Some v.
+  Proof.
+    unfold get, set.
+    intros.
+    now rewrite sortedmap.gss by eauto with typeclass_instances.
+  Qed.
+
+  Lemma gso : forall V k1 k2 (v : V) m, k1 <> k2 -> get k2 (set k1 v m) = get k2 m.
+  Proof.
+    unfold get, set.
+    intros.
+    now rewrite sortedmap.gso by eauto with typeclass_instances.
+  Qed.
+
+  Lemma in_values :
+    forall V (v : V) (m : t V),
+      In v (values m) ->
+      exists k, get k m = Some v.
+  Proof.
+    unfold get, values.
+    intros V v m I.
+    apply sortedmap.in_values.
+    eauto with typeclass_instances.
+    assumption.
+  Qed.
+End env.
 
 Module expr.
 
