@@ -137,14 +137,23 @@ Module env.
     now rewrite sortedmap.gso by eauto with typeclass_instances.
   Qed.
 
-  Lemma in_values :
+  Lemma in_values_intro :
+    forall V k (v : V) (m : t V),
+      get k m = Some v ->
+      In v (values m).
+  Proof.
+    unfold get, values.
+    eauto using sortedmap.in_values_intro.
+  Qed.
+
+  Lemma in_values_elim :
     forall V (v : V) (m : t V),
       In v (values m) ->
       exists k, get k m = Some v.
   Proof.
     unfold get, values.
     intros V v m I.
-    apply sortedmap.in_values.
+    apply sortedmap.in_values_elim.
     eauto with typeclass_instances.
     assumption.
   Qed.
@@ -329,27 +338,32 @@ Proof.
       end.
 Qed.
 
+Definition key (l : list nat) (e : t) : list nat :=
+  List.map (fun a => expr.eval a e) l.
+
 Definition add_to_env_mod (l : list nat) (E : env.t t) (e : t) : env.t t :=
-  let outputs := List.map (fun a => expr.eval a e) l in
-  match env.get outputs E with
-  | None => env.set outputs e E
+  let k := key l e in
+  match env.get k E with
+  | None => env.set k e E
   | Some _ => E
   end.
+
+Definition add_all_to_env_mod (l : list nat) (E : env.t t) (es : list t) : env.t t :=
+  List.fold_left (add_to_env_mod l) es E.
 
 Fixpoint all_up_to_height_mod (l : list nat) (n : nat) : env.t t :=
   match n with
   | 0 => env.empty
   | S n =>
     let E := all_up_to_height_mod l n in
-    List.fold_left (add_to_env_mod l)
-    (zero :: one :: var ::
-         let es := env.values E in
-         flat_map (fun a => map (plus a) es) es)
-    E
+    add_all_to_env_mod l E
+      (zero :: one :: var ::
+           let es := env.values E in
+           flat_map (fun a => map (plus a) es) es)
   end.
 
 Definition eq_mod (l : list nat) (e1 e2 : t) : Prop :=
-  Forall (fun x => expr.eval x e1 = expr.eval x e2) l.
+  key l e1 = key l e2.
 
 Lemma sem_eq_eq_mod :
   forall e1 e2,
@@ -357,10 +371,8 @@ Lemma sem_eq_eq_mod :
     forall l, eq_mod l e1 e2.
 Proof.
   intros e1 e2 SE l.
-  unfold eq_mod.
-  apply Forall_forall.
-  intros x I.
-  apply SE.
+  unfold eq_mod, key, sem_eq in *.
+  now apply map_ext.
 Qed.
 
 Lemma get_add_to_env_mod :
@@ -372,8 +384,7 @@ Proof.
   intros os l E e e' Get.
   destruct (env.get _ E) eqn:EQ.
   - auto.
-  - set (os' := map (fun a : nat => eval a e) l) in *.
-    destruct (list_eq_dec eq_nat_dec os os').
+  - destruct (list_eq_dec eq_nat_dec os (key l e)).
     + subst os.
       rewrite env.gss in Get.
       left. congruence.
@@ -400,9 +411,10 @@ Lemma add_all_to_env_sanity :
     (forall os e, env.get os E = Some e -> expr.height e <= n) ->
     Forall (fun e => expr.height e <= n) es ->
     forall os e,
-      env.get os (fold_left (add_to_env_mod l) es E) = Some e ->
+      env.get os (add_all_to_env_mod l E es) = Some e ->
       expr.height e <= n.
 Proof.
+  unfold add_all_to_env_mod.
   intros n l es E GetE F.
   apply fold_left_ind with (Q := (fun e => expr.height e <= n)); auto.
   clear es E GetE F.
@@ -445,25 +457,22 @@ Lemma all_up_to_height_mod_sanity :
     env.get os (all_up_to_height_mod l n) = Some e ->
     expr.height e <= n.
 Proof.
-  induction n; simpl; intros os e Get;
+  induction n; intros os e Get;
     [now rewrite env.ge in Get|].
+  cbn [all_up_to_height_mod] in *.
   eapply add_all_to_env_sanity; try apply Get.
+  - eauto.
   - clear os e Get.
-    intros os e Get.
-    repeat
-    (apply get_add_to_env_mod in Get;
-     destruct Get as [|Get]; [subst e; simpl; omega|]).
-    eauto.
-  - clear os e Get.
+    do 3 (constructor; [simpl; omega|]).
     apply Forall_flatmap.
     apply Forall_forall.
     intros e1 I1.
     apply Forall_map.
     apply Forall_forall.
     intros e2 I2.
-    apply env.in_values in I1.
+    apply env.in_values_elim in I1.
     destruct I1 as [k1 Get1].
-    apply env.in_values in I2.
+    apply env.in_values_elim in I2.
     destruct I2 as [k2 Get2].
     apply IHn in Get1.
     apply IHn in Get2.
@@ -472,57 +481,206 @@ Qed.
 
 Lemma add_to_env_mod_sound :
   forall l E e os,
-    (forall e, env.get os E = Some e -> map (fun x => eval x e) l = os) ->
+    (forall e, env.get os E = Some e -> key l e = os) ->
     forall e',
       env.get os (add_to_env_mod l E e) = Some e' ->
-      map (fun x => expr.eval x e') l = os.
+      key l e' = os.
 Proof.
   unfold add_to_env_mod in *.
   intros l E e os GetE e1 Get1.
-  destruct (env.get (map _ _) E) eqn:EQ; [now auto|].
-  set (os' := map (fun a : nat => eval a e) l) in *.
-  destruct (list_eq_dec eq_nat_dec os os').
-  - subst os os'. rewrite env.gss in Get1.
+  destruct (env.get (key _ _) E) eqn:EQ; [now auto|].
+  destruct (list_eq_dec eq_nat_dec os (key l e)).
+  - subst os. rewrite env.gss in Get1.
     inversion Get1. subst. reflexivity.
   - rewrite env.gso in Get1 by congruence.
     eauto.
 Qed.
 
+Lemma Forall_True:
+  forall A (l : list A), Forall (fun _ => True) l.
+Proof.
+  induction l; constructor; auto.
+Qed.
+
 Lemma add_all_to_env_sound :
   forall l es E,
-    (forall os e, env.get os E = Some e -> List.map (fun x => expr.eval x e) l = os) ->
+    (forall os e, env.get os E = Some e -> key l e = os) ->
     forall os e,
-      env.get os (fold_left (add_to_env_mod l) es E) = Some e ->
-      List.map (fun x => expr.eval x e) l = os.
+      env.get os (add_all_to_env_mod l E es) = Some e ->
+      key l e = os.
 Proof.
+  unfold add_all_to_env_mod.
   intros l es E GetE os.
   apply fold_left_ind with (Q := fun _ => True); auto.
   - clear es E GetE.
     intros E e GetE _ e1 Get1.
     eapply add_to_env_mod_sound; eauto.
-  - induction es; constructor; auto.
+  - apply Forall_True.
 Qed.
 
 Lemma all_up_to_height_mod_sound :
   forall l n os e,
     env.get os (all_up_to_height_mod l n) = Some e ->
-    List.map (fun x => expr.eval x e) l = os.
+    key l e = os.
 Proof.
-  induction n; simpl; intros os e Get;
+  induction n; intros os e Get;
     [now rewrite env.ge in Get|].
+  cbn [all_up_to_height_mod] in *.
   eapply add_all_to_env_sound in Get; try apply Get.
   clear os e Get.
   intros os e Get.
-  apply add_to_env_mod_sound in Get; [assumption|].
-  clear e Get.
-  intros e Get.
-  apply add_to_env_mod_sound in Get; [assumption|].
-  clear e Get.
-  intros e Get.
-  apply add_to_env_mod_sound in Get; [assumption|].
-  clear e Get.
-  intros e Get.
   auto.
+Qed.
+
+Lemma get_add_all_to_env :
+  forall l es E k e,
+    env.get k E = Some e ->
+    env.get k (add_all_to_env_mod l E es) = Some e.
+Proof.
+  unfold add_all_to_env_mod.
+  intros l es E k e Get.
+  apply fold_left_ind with (Q := fun _ => True); auto using Forall_True.
+  clear E Get.
+  intros E e' Get _.
+  unfold add_to_env_mod.
+  destruct (env.get (key _ _) _) eqn:EQ; [now auto|].
+  now rewrite env.gso by congruence.
+Qed.
+
+Lemma eq_mod_refl :
+  forall l e,
+    eq_mod l e e.
+Proof.
+  now unfold eq_mod.
+Qed.
+
+Lemma eq_mod_trans :
+  forall l e1 e2 e3,
+    eq_mod l e1 e2 ->
+    eq_mod l e2 e3 ->
+    eq_mod l e1 e3.
+Proof.
+  unfold eq_mod.
+  intros.
+  congruence.
+Qed.
+
+Lemma map_eq_Forall_eq :
+  forall A B (f g : A -> B) l,
+    map f l = map g l ->
+    Forall (fun x => f x = g x) l.
+Proof.
+  induction l; simpl; intros ME; inversion ME; subst; clear ME; constructor; auto.
+Qed.
+
+Lemma eq_mod_plus_cong :
+  forall l e1 e1' e2 e2',
+    eq_mod l e1 e1' ->
+    eq_mod l e2 e2' ->
+    eq_mod l (plus e1 e2) (plus e1' e2').
+Proof.
+  unfold eq_mod, key.
+  intros l e1 e1' e2 e2' E1 E2.
+  simpl.
+  apply map_eq_Forall_eq in E1.
+  rewrite Forall_forall in E1.
+  apply map_eq_Forall_eq in E2.
+  rewrite Forall_forall in E2.
+  apply map_ext_in.
+  intros x I.
+  now rewrite E1, E2 by assumption.
+Qed.
+
+Lemma add_to_env_mod_complete :
+  forall l e E,
+    (forall k1 e1, env.get k1 E = Some e1 -> key l e1 = k1) ->
+    exists e',
+      eq_mod l e e' /\
+      env.get (key l e) (add_to_env_mod l E e) = Some e'.
+Proof.
+  intros l e E Sound.
+  unfold add_to_env_mod.
+  destruct (env.get _ E) eqn:EQ.
+  - rewrite EQ.
+    eexists.
+    split; [|reflexivity].
+    unfold eq_mod.
+    now apply Sound in EQ.
+  - rewrite env.gss.
+    eauto using eq_mod_refl.
+Qed.
+
+Lemma eq_mod_key :
+  forall l e1 e2,
+    eq_mod l e1 e2 ->
+    key l e1 = key l e2.
+Proof.
+  now unfold eq_mod.
+Qed.
+
+Lemma add_all_to_env_complete :
+  forall l es E e e',
+    (forall k1 e1, env.get k1 E = Some e1 -> key l e1 = k1) ->
+    eq_mod l e e' ->
+    In e' es ->
+    exists e',
+      eq_mod l e e' /\
+      env.get (key l e) (add_all_to_env_mod l E es) = Some e'.
+Proof.
+  unfold add_all_to_env_mod.
+  intros l.
+  induction es; intros E e e' Sound EM I; [now intuition| destruct I as [EQ|I]];
+    cbn[fold_left].
+  - subst a.
+    pose proof add_to_env_mod_complete l e' E as H;
+      match type of H with
+      | ?P -> _ => assert P as HP by assumption; specialize (H HP); clear HP
+      end.
+    destruct H as [e1 [EM1 Get1]].
+    fold (add_all_to_env_mod l (add_to_env_mod l E e') es).
+    rewrite get_add_all_to_env with (e := e1); [now eauto using eq_mod_trans|].
+    erewrite eq_mod_key; eauto.
+  - eauto using add_to_env_mod_sound.
+Qed.
+
+Lemma all_up_to_height_mod_complete :
+  forall l n e,
+    expr.height e <= n ->
+    exists e',
+      eq_mod l e e' /\
+      env.get (key l e) (all_up_to_height_mod l n) = Some e'.
+Proof.
+  induction n; intros e He;
+    [destruct e; simpl in *; omega|].
+  cbn [all_up_to_height_mod].
+  destruct e.
+  - apply add_all_to_env_complete with (e' := zero).
+    + now apply all_up_to_height_mod_sound.
+    + auto using eq_mod_refl.
+    + simpl; intuition.
+  - apply add_all_to_env_complete with (e' := one).
+    + now apply all_up_to_height_mod_sound.
+    + auto using eq_mod_refl.
+    + simpl; intuition.
+  - apply add_all_to_env_complete with (e' := var).
+    + now apply all_up_to_height_mod_sound.
+    + auto using eq_mod_refl.
+    + simpl; intuition.
+  - simpl in He.
+    destruct (IHn e1 (ltac:(zify; omega))) as [e1' [EM1 Get1]].
+    destruct (IHn e2 (ltac:(zify; omega))) as [e2' [EM2 Get2]].
+    apply add_all_to_env_complete with (e' := plus e1' e2').
+    + now apply all_up_to_height_mod_sound.
+    + now auto using eq_mod_plus_cong.
+    + simpl.
+      do 3 right.
+      rewrite in_flat_map.
+      apply env.in_values_intro in Get1.
+      apply env.in_values_intro in Get2.
+      exists e1'.
+      split; [assumption|].
+      rewrite in_map_iff.
+      eauto.
 Qed.
 
 End expr.

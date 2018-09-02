@@ -561,7 +561,31 @@ Module sortedmap.
           * auto.
     Qed.
 
-    Lemma in_values' :
+    Lemma in_values_intro' :
+      forall V k (v : V) (m : t' V),
+        get' k m = Some v ->
+        In v (values' m).
+    Proof.
+      induction m as [|[k1 v1] m]; simpl; intros Get.
+      - discriminate.
+      - decide (k < k1); [discriminate|].
+        destruct equiv_dec.
+        + left. congruence.
+        + auto.
+    Qed.
+
+
+    Lemma in_values_intro :
+      forall V k (v : V) (m : t V),
+        get k m = Some v ->
+        In v (values m).
+    Proof.
+      unfold get, values.
+      intros V k v m Get.
+      eauto using in_values_intro'.
+    Qed.
+
+    Lemma in_values_elim' :
       forall V (v : V) (m : t' V),
         Sorted tuple_lt m ->
         In v (values' m) ->
@@ -587,14 +611,14 @@ Module sortedmap.
           now erewrite get'_hdrel in Get1 by eauto using HdRel_trans.
     Qed.
 
-    Lemma in_values :
+    Lemma in_values_elim :
       forall V (v : V) (m : t V),
         In v (values m) ->
         exists k, get k m = Some v.
     Proof.
       unfold get, values.
       intros V v m I.
-      apply in_values' in I.
+      apply in_values_elim' in I.
       assumption.
       apply proj2_sig.
     Qed.
