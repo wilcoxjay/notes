@@ -1,6 +1,112 @@
 Require Import List Omega Relations ExtensionalMaps RelationClasses DecidableClass EquivDec TotalOrder.
 Import ListNotations.
 
+Section list_lemmas.
+  Lemma skipn_length :
+    forall A n (l : list A),
+      List.length l <= n ->
+      skipn n l = [].
+  Proof.
+    induction n; destruct l; simpl; intros LE; try omega; auto with *.
+  Qed.
+
+  Lemma map_eq_Forall_eq :
+    forall A B (f g : A -> B) l,
+      map f l = map g l ->
+      Forall (fun x => f x = g x) l.
+  Proof.
+    induction l; simpl; intros ME; inversion ME; subst; clear ME; constructor; auto.
+  Qed.
+
+  Lemma Forall_True:
+    forall A (l : list A), Forall (fun _ => True) l.
+  Proof.
+    induction l; constructor; auto.
+  Qed.
+
+  Lemma Forall_app :
+    forall A (P : A -> Prop) l1 l2,
+      Forall P l1 ->
+      Forall P l2 ->
+      Forall P (l1 ++ l2).
+  Proof.
+    induction 1; intros F2; simpl.
+    - assumption.
+    - constructor; auto.
+  Qed.
+
+  Lemma Forall_flatmap :
+    forall A B (f : A -> list B) (P : B -> Prop) l,
+      Forall (fun a => Forall P (f a)) l ->
+      Forall P (flat_map f l).
+  Proof.
+    induction 1; simpl.
+    - constructor.
+    - apply Forall_app; auto.
+  Qed.
+
+  Lemma Forall_map :
+    forall A B (f : A -> B) (P : B -> Prop) l,
+      Forall (fun a => P (f a)) l ->
+      Forall P (map f l).
+  Proof.
+    induction 1; simpl; constructor; auto.
+  Qed.
+
+  Lemma fold_left_ind :
+    forall A B (P : A -> Prop) (Q : B -> Prop) (f : A -> B -> A) l z,
+      (forall a b, P a -> Q b -> P (f a b)) ->
+      Forall Q l ->
+      P z ->
+      P (fold_left f l z).
+  Proof.
+    intros A B P Q f.
+    induction l; intros z Pf F Pz; cbn [fold_left].
+    - assumption.
+    - inversion F; subst; clear F.
+      eauto.
+  Qed.
+
+  Lemma filter_length_monotonic :
+    forall A (f g : A -> bool),
+      (forall x, f x = true -> g x = true) ->
+      forall l,
+        length (filter f l) <= length (filter g l).
+  Proof.
+    intros A f g FG.
+    induction l; simpl; auto.
+    destruct f eqn:EQ.
+    - rewrite FG by assumption.
+      simpl.
+      omega.
+    - destruct g; simpl; omega.
+  Qed.
+
+  Lemma filter_length_monotonic_lt :
+    forall A (f g : A -> bool) x,
+      (forall x, f x = true -> g x = true) ->
+      f x = false ->
+      g x = true ->
+      forall l,
+        In x l ->
+        length (filter f l) < length (filter g l).
+  Proof.
+    intros A f g x FG Fx Gx.
+    induction l; intros I; simpl in *; [now intuition| destruct I as [|I]].
+    - subst.
+      rewrite Fx, Gx.
+      simpl.
+      pose proof filter_length_monotonic _ _ _ FG l.
+      omega.
+    - specialize (IHl I).
+      destruct (f a) eqn:EQ.
+      + rewrite FG by assumption.
+        simpl.
+        omega.
+      + destruct (g a); simpl; omega.
+  Qed.
+End list_lemmas.
+
 Section Ltl_instances.
   Context (A : Set) R `(SO_R : StrictOrder A R).
 
@@ -55,7 +161,7 @@ Section Ltl_instances.
       * compute in c.
         apply Build_Decidable with (Decidable_witness := false).
         split; intro H; inversion H; subst; intuition.
-  Qed.
+  Defined.
 
   Global Instance Inhabited_list : Inhabited (list A).
   constructor.
@@ -113,6 +219,9 @@ Module env.
   Definition set {V} k v (m : t V) : t V :=
     sortedmap.set _ _ _ k v m.
 
+  Definition keys {V} (m : t V) : list (list nat) :=
+    sortedmap.keys m.
+
   Definition values {V} (m : t V) : list V :=
     sortedmap.values m.
 
@@ -135,6 +244,26 @@ Module env.
     unfold get, set.
     intros.
     now rewrite sortedmap.gso by eauto with typeclass_instances.
+  Qed.
+
+  Lemma in_keys_intro :
+    forall V k v (m : t V),
+      get k m = Some v ->
+      In k (keys m).
+  Proof.
+    unfold get, keys.
+    intros V k v m Get.
+    eauto using sortedmap.in_keys_intro with typeclass_instances.
+  Qed.
+
+  Lemma in_keys_elim :
+    forall V k (m : t V),
+      In k (keys m) ->
+      exists v,
+        get k m = Some v.
+  Proof.
+    unfold get, keys.
+    eauto using sortedmap.in_keys_elim with typeclass_instances.
   Qed.
 
   Lemma in_values_intro :
@@ -175,6 +304,13 @@ Fixpoint height (e : t) : nat :=
   | var => 1
   | plus e1 e2 => 1 + max (height e1) (height e2)
   end.
+
+Lemma height_nonzero :
+  forall e,
+    1 <= expr.height e.
+Proof.
+  destruct e; simpl; omega.
+Qed.
 
 Fixpoint eval (the_var : nat) (e : t) : nat :=
   match e with
@@ -392,20 +528,6 @@ Proof.
       auto.
 Qed.
 
-Lemma fold_left_ind :
-  forall A B (P : A -> Prop) (Q : B -> Prop) (f : A -> B -> A) l z,
-    (forall a b, P a -> Q b -> P (f a b)) ->
-    Forall Q l ->
-    P z ->
-    P (fold_left f l z).
-Proof.
-  intros A B P Q f.
-  induction l; intros z Pf F Pz; cbn [fold_left].
-  - assumption.
-  - inversion F; subst; clear F.
-    eauto.
-Qed.
-
 Lemma add_all_to_env_sanity :
   forall n l es E,
     (forall os e, env.get os E = Some e -> expr.height e <= n) ->
@@ -421,35 +543,6 @@ Proof.
   intros E e GetE He os e1 Get1.
   apply get_add_to_env_mod in Get1.
   destruct Get1; subst; eauto.
-Qed.
-
-Lemma Forall_app :
-  forall A (P : A -> Prop) l1 l2,
-    Forall P l1 ->
-    Forall P l2 ->
-    Forall P (l1 ++ l2).
-Proof.
-  induction 1; intros F2; simpl.
-  - assumption.
-  - constructor; auto.
-Qed.
-
-Lemma Forall_flatmap :
-  forall A B (f : A -> list B) (P : B -> Prop) l,
-    Forall (fun a => Forall P (f a)) l ->
-    Forall P (flat_map f l).
-Proof.
-  induction 1; simpl.
-  - constructor.
-  - apply Forall_app; auto.
-Qed.
-
-Lemma Forall_map :
-  forall A B (f : A -> B) (P : B -> Prop) l,
-    Forall (fun a => P (f a)) l ->
-    Forall P (map f l).
-Proof.
-  induction 1; simpl; constructor; auto.
 Qed.
 
 Lemma all_up_to_height_mod_sanity :
@@ -494,12 +587,6 @@ Proof.
     inversion Get1. subst. reflexivity.
   - rewrite env.gso in Get1 by congruence.
     eauto.
-Qed.
-
-Lemma Forall_True:
-  forall A (l : list A), Forall (fun _ => True) l.
-Proof.
-  induction l; constructor; auto.
 Qed.
 
 Lemma add_all_to_env_sound :
@@ -563,14 +650,6 @@ Proof.
   unfold eq_mod.
   intros.
   congruence.
-Qed.
-
-Lemma map_eq_Forall_eq :
-  forall A B (f g : A -> B) l,
-    map f l = map g l ->
-    Forall (fun x => f x = g x) l.
-Proof.
-  induction l; simpl; intros ME; inversion ME; subst; clear ME; constructor; auto.
 Qed.
 
 Lemma eq_mod_plus_cong :
@@ -683,57 +762,73 @@ Proof.
       eauto.
 Qed.
 
+Lemma same_key_eval :
+  forall e1 e2 x l,
+    expr.key l e1 = expr.key l e2 ->
+    In x l ->
+    expr.eval x e1 = expr.eval x e2.
+Proof.
+  induction l; simpl; intros; intuition.
+  - subst.
+    inversion H; congruence.
+  - inversion H; subst; clear H. auto.
+Qed.
 End expr.
 
-Definition extensional (P : expr.t -> Prop) : Prop :=
-  forall e1 e2,
-    expr.sem_eq e1 e2 ->
-    P e1 <-> P e2.
-
 Module state.
-  Record t := Make { height: nat; queue : list expr.t; inputs: list nat }.
+  Record t := Make { height: nat; env: env.t expr.t; queue : list (list nat); inputs: list nat }.
 
-  Definition init : t :=
-    Make 0 [] [].
+  Definition init (l : list nat) : t :=
+    Make 0 env.empty [] l.
 End state.
 
 Section cozy.
 
   Variable P : nat -> expr.t -> Prop.
-  Hypothesis P_ext : forall x, extensional (P x).
+  Hypothesis P_ext : forall x e1 e2, expr.eval x e1 = expr.eval x e2 -> P x e1 <-> P x e2.
 
-  Hypothesis P_dec : forall x e, {P x e} + {~ P x e}.
+  Hypothesis P_dec : nat -> expr.t -> bool.
+  Hypothesis P_dec_ok : forall x e, Bool.reflect (P x e) (P_dec x e).
 
   Hypothesis P_oracle : forall e, {x : nat | ~ P x e} + {forall x, P x e}.
 
-  Definition check_inputs (e : expr.t) : forall l, {Forall (fun x => P x e) l} + {Exists (fun x => ~ P x e) l} :=
-    fix go (l : list nat) :=
-      match l with
-      | [] => left (Forall_nil _)
-      | x :: l =>
-        match P_dec x e with
-        | left pf =>
-          match go l with
-          | left IHpf => left (Forall_cons _ pf IHpf)
-          | right pf => right (Exists_cons_tl _ pf)
-          end
-        | right pf => right (Exists_cons_hd _ x l pf)
-        end
-      end.
+  Definition check_inputs (l : list nat) (e : expr.t) : bool :=
+    forallb (fun n => P_dec n e) l.
+
+  Lemma check_inputs_ok :
+    forall e l,
+      if check_inputs l e
+      then Forall (fun n => P n e) l
+      else Exists (fun n => ~ P n e) l
+  .
+  Proof.
+    induction l; simpl.
+    - constructor.
+    - destruct (P_dec_ok a e); cbn[andb].
+      + destruct check_inputs; auto.
+      + eauto.
+  Qed.
 
   Definition step (s : state.t) : state.t + expr.t :=
     match s.(state.queue) with
-    | [] => inl (state.Make (S s.(state.height))
-                           (expr.all_of_exactly_height (S s.(state.height)))
-                           s.(state.inputs))
-    | e :: q =>
-      match check_inputs e s.(state.inputs) with
-      | left pf =>
-        match P_oracle e with
-        | inleft (exist _ x pf) => inl (state.Make s.(state.height) q (x :: s.(state.inputs)))
-        | inright _ => inr e
-        end
-      | right pf => inl (state.Make s.(state.height) q s.(state.inputs))
+    | [] =>
+      let E := expr.all_up_to_height_mod s.(state.inputs) (S s.(state.height)) in
+      inl (state.Make (S s.(state.height))
+                      E
+                      (env.keys E)
+                      s.(state.inputs))
+    | k :: q =>
+      match env.get k s.(state.env) with
+      | None => inl (state.Make s.(state.height) s.(state.env) q s.(state.inputs))
+      | Some e =>
+        if check_inputs s.(state.inputs) e
+        then
+          match P_oracle e with
+          | inleft (exist _ x pf) => inl (state.init (x :: s.(state.inputs)))
+          | inright _ => inr e
+          end
+        else
+          inl (state.Make s.(state.height) s.(state.env) q s.(state.inputs))
       end
     end.
 
@@ -748,16 +843,20 @@ Section cozy.
     end.
 
   Definition inv (s : state.t) : Prop :=
-    forall e,
+    (forall k, In k s.(state.queue) -> exists e, env.get k s.(state.env) = Some e) /\
+    (s.(state.height) > 0 -> s.(state.env) = expr.all_up_to_height_mod s.(state.inputs) s.(state.height)) /\
+    (forall e,
       expr.height e <= s.(state.height) ->
-      (exists x, ~P x e) \/ (exists e', In e' s.(state.queue) /\ expr.sem_eq e e').
+      (exists x, ~P x e) \/ In (expr.key s.(state.inputs) e) s.(state.queue))
+  .
 
   Lemma init_inv :
-    inv state.init.
+    forall l, inv (state.init l).
   Proof.
     unfold inv, state.init.
     simpl.
-    intros e Height.
+    intuition.
+    exfalso.
     destruct e; simpl in *; omega.
   Qed.
 
@@ -768,8 +867,12 @@ Section cozy.
       forall x, P x e.
   Proof.
     unfold step.
+    unfold inv.
     intros s e Inv Step.
     destruct state.queue; [discriminate|].
+    destruct Inv as [GetQ [Env Done]].
+    destruct (GetQ l ltac:(intuition)) as [e1 Get1].
+    rewrite Get1 in Step.
     destruct check_inputs; [|discriminate].
     destruct P_oracle as [[]|]; [discriminate|].
     inversion Step; subst; clear Step.
@@ -790,49 +893,49 @@ Section cozy.
         assert (x = y) by (now inversion H); clear H; subst
       end.
       unfold inv.
-      cbn -[In expr.all_of_exactly_height].
-      intros e LE.
-      inversion LE.
-      + auto using expr.all_of_exactly_height_complete.
-      + unfold inv in Inv.
-        rewrite EQ in *.
-        specialize (Inv e H0).
-        destruct Inv as [[x HP]|[e' [I SE]]].
-        * eauto.
-        * intuition.
-    - destruct check_inputs.
+      split; [|split].
+      + auto using env.in_keys_elim.
+      + auto.
+      + cbn [state.inputs state.height state.queue].
+        intros e He.
+        right.
+        destruct (expr.all_up_to_height_mod_complete s.(state.inputs) (S s.(state.height)) e ltac:(assumption))
+          as [e' [EM Get]].
+        eauto using env.in_keys_intro.
+    - unfold inv in Inv.
+      destruct Inv as [GetQ [Env Done]].
+      destruct (GetQ l) as [e Get]; [now rewrite EQ; intuition|].
+      rewrite Get in Step.
+      pose proof check_inputs_ok e (state.inputs s) as CI.
+      destruct check_inputs.
       + destruct P_oracle as [[x pf]|]; [|discriminate].
         inversion Step; subst; clear Step.
-        unfold inv in *.
-        simpl.
-        intros e Height.
-        destruct (Inv e Height) as [[x0 pf0]| I].
-        * now eauto.
-        * rewrite EQ in I.
-          simpl in I. destruct I as [e' [[?|I] SE]].
-          -- subst. left. exists x.
-             intro C.
-             unfold extensional in P_ext.
-             rewrite P_ext in C by eauto.
-             auto.
-          -- eauto.
+        apply init_inv.
       + inversion Step; subst; clear Step.
         unfold inv in *.
         simpl.
-        intros e2 Height2.
-        destruct (Inv e2 Height2) as [[x pf]| I].
-        * now eauto.
-        * rewrite EQ in I.
-          simpl in I. destruct I as [e' [[?|I] SE]].
-          -- subst.
-             rewrite Exists_exists in e.
-             destruct e as [x0 [_ pf0]].
-             left. exists x0.
-             intro C.
-             unfold extensional in P_ext.
-             rewrite P_ext in C by eauto.
-             auto.
-          -- eauto.
+        split; [|split].
+        * intros k I.
+          apply GetQ.
+          rewrite EQ.
+          intuition.
+        * auto.
+        * intros e1 He1.
+          destruct (Done e1 He1) as [| I]; [now auto|].
+          rewrite EQ in I.
+          simpl in I.
+          destruct I as [|I]; [|now auto].
+          subst.
+          assert (state.height s > 0) as He1nz by (pose proof expr.height_nonzero e1; omega).
+          specialize (Env He1nz); clear He1nz.
+          rewrite Env in *.
+          pose proof expr.all_up_to_height_mod_sound _ _ _ _ Get.
+          apply Exists_exists in CI.
+          destruct CI as [x [I NP]].
+          left.
+          exists x.
+          rewrite P_ext. eauto.
+          eauto using expr.same_key_eval.
   Qed.
 
   Lemma run_inl :
@@ -860,65 +963,6 @@ Section cozy.
       eauto using step_inr.
   Qed.
 
-  Lemma run_skipn :
-    forall n s,
-      n <= List.length s.(state.queue) ->
-      (exists l, run n s = inl (state.Make s.(state.height)
-                                      (skipn n s.(state.queue))
-                                      (l ++ s.(state.inputs)))) \/
-      (exists e, run n s = inr e).
-  Proof.
-    induction n; intros s LE.
-    - left. exists []. destruct s; reflexivity.
-    - set (r := run (S n) s).
-      cbn [run] in *.
-      unfold step in *.
-      destruct state.queue eqn:EQ; [simpl in *; omega|].
-      destruct check_inputs.
-      + destruct P_oracle as [[x Hx]|].
-        * match goal with
-          | [ _ := run n ?s |- _ ] =>
-            specialize (IHn s ltac:(simpl in *; omega))
-          end.
-          subst r.
-          simpl in *.
-          destruct IHn as [[l0 Run]|[e0 Run]]; rewrite Run.
-          -- left.
-             exists (l0 ++ [x]).
-             now rewrite app_ass.
-          -- right.
-             eauto.
-        * right. subst r. eauto.
-      + match goal with
-        | [ _ := run n ?s |- _ ] =>
-          specialize (IHn s ltac:(simpl in *; omega))
-        end.
-        subst r.
-        simpl in *.
-        destruct IHn as [[l0 Run]|[e0 Run]]; rewrite Run; eauto.
-  Qed.
-
-  Lemma skipn_length :
-    forall A n (l : list A),
-      List.length l <= n ->
-      skipn n l = [].
-  Proof.
-    induction n; destruct l; simpl; intros LE; try omega; auto with *.
-  Qed.
-
-  Lemma finish_this_height :
-    forall s,
-      exists n,
-        (exists l, run n s = inl (state.Make s.(state.height) [] (l ++ s.(state.inputs)))) \/
-        (exists e, run n s = inr e).
-  Proof.
-    intros s.
-    destruct (run_skipn (List.length s.(state.queue)) s ltac:(omega)) as [[l Run]|[e Run]].
-    - rewrite skipn_length in Run by omega.
-      eauto.
-    - eauto.
-  Qed.
-
   Lemma run_plus :
     forall n1 n2 s,
       run (n1 + n2) s =
@@ -932,56 +976,229 @@ Section cozy.
     - destruct step; auto.
   Qed.
 
-  Lemma all_heights :
-    forall h,
-      exists n,
-        (exists l, run n state.init = inl (state.Make h (expr.all_of_exactly_height h) l)) \/
-        (exists e, run n state.init = inr e).
+  Lemma run_skipn :
+    forall n s,
+      n <= List.length s.(state.queue) ->
+      (run n s = inl (state.Make s.(state.height)
+                                 s.(state.env)
+                                 (skipn n s.(state.queue))
+                                 s.(state.inputs))) \/
+      (exists n' k e x,
+          n' <= n /\
+          env.get k s.(state.env) = Some e /\
+          Forall (fun x => P x e) s.(state.inputs) /\
+          ~ P x e /\
+          run n' s = inl (state.init (x :: s.(state.inputs)))) \/
+      (exists e, run n s = inr e).
   Proof.
-    induction h.
-    - exists 0. left. exists []. reflexivity.
-    - destruct IHh as [n1 [[l1 Run1]|[e Run]]].
+    induction n; intros s LE.
+    - left. destruct s; reflexivity.
+    - set (r := run (S n) s).
+      cbn [run] in *.
+      unfold step in *.
+      destruct state.queue eqn:EQ; [simpl in *; omega|].
+      destruct env.get eqn:Get.
+      + pose proof check_inputs_ok t (state.inputs s) as CI.
+        destruct check_inputs eqn:EQCI.
+        * destruct P_oracle as [[x Hx]|] eqn:EQO.
+          -- right. left.
+             exists 1, l, t, x.
+             split; [|split; [|split]]; auto with *.
+             simpl.
+             unfold step.
+             now rewrite EQ, Get, EQCI, EQO.
+          -- subst r. eauto.
+        * match goal with
+          | [ _ := run n ?s |- _ ] =>
+            specialize (IHn s ltac:(simpl in *; omega))
+          end.
+          subst r.
+          simpl in *.
+          destruct IHn as [Run|[[n' [k [e1 [x [LEn [Get1 [F [NP Run]]]]]]]]|[e0 Run]]].
+          -- auto.
+          -- right. left.
+             exists (S n'), k, e1, x.
+             split; [|split;[|split;[|split]]]; auto with *.
+             simpl. unfold step.
+             now rewrite EQ, Get, EQCI.
+          -- eauto.
       + match goal with
-        | [ _ : _ = inl ?s |- _ ] =>
-          destruct (finish_this_height s) as [n2 [[l2 Run2]|[e Run]]]
+        | [ _ := run n ?s |- _ ] =>
+          specialize (IHn s ltac:(simpl in *; omega))
         end.
-        * exists (n1 + (n2 + 1)).
-          left.
-          eexists.
-          now rewrite run_plus, Run1, run_plus, Run2.
-        * exists (n1 + n2).
-          right.
-          rewrite run_plus, Run1, Run. eauto.
-      + exists n1. right. eauto.
+        subst r.
+        simpl in *.
+        destruct IHn as [Run|[[n' [k [e1 [x [LEn [Get1 [F [NP Run]]]]]]]]|[e0 Run]]].
+        * auto.
+        * right. left.
+          exists (S n'), k, e1, x.
+          split; [|split;[|split;[|split]]]; auto with *.
+          simpl. unfold step.
+          now rewrite EQ, Get.
+        * eauto.
+  Qed.
+
+  Lemma finish_this_height :
+    forall s,
+      (exists n, run n s = inl (state.Make s.(state.height) s.(state.env) [] s.(state.inputs))) \/
+      (exists n k e x,
+          env.get k s.(state.env) = Some e /\
+          Forall (fun x => P x e) s.(state.inputs) /\
+          ~ P x e /\
+          run n s = inl (state.init (x :: s.(state.inputs)))) \/
+      (exists n e, run n s = inr e).
+  Proof.
+    intros s.
+    destruct (run_skipn (length s.(state.queue)) s) as [Run|[[n' [k [e [x [Get [F [NP Run]]]]]]]|[e Run]]];
+      [omega| | |].
+    - rewrite skipn_length in Run by omega.
+      eauto.
+    - eauto 10.
+    - eauto.
+  Qed.
+
+  Lemma all_heights :
+    forall l h,
+      (exists n,
+          run n (state.init l) = inl (state.Make h (expr.all_up_to_height_mod l h)
+                                                 (env.keys (expr.all_up_to_height_mod l h)) l)) \/
+      (exists n e x,
+          expr.height e <= h /\
+          Forall (fun x => P x e) l /\
+          ~ P x e /\
+          run n (state.init l) = inl (state.init (x :: l))) \/
+      (exists n e,
+          run n (state.init l) = inr e).
+  Proof.
+    induction h; [|destruct IHh as [[n1 Run1]|[[n1 [e1 [x [He1 [F1 [NP1 Run1]]]]]]|[n1 [e1 Run1]]]]]; eauto 10.
+    - left. exists 0. reflexivity.
+    - match goal with
+      | [ H : run _ _ = inl ?s |- _ ] =>
+        destruct (finish_this_height s) as [[n2 Run2]|
+                                            [[n2 [k2 [e2 [x [Get2 [F2 [NP2 Run2]]]]]]]|
+                                             [n2 [e2 Run2]]
+                                           ]]
+      end.
+      cbn [state.inputs state.height state.queue state.env] in *.
+      + left. exists (n1 + (n2 + 1)).
+        rewrite run_plus, Run1, run_plus, Run2.
+        reflexivity.
+      + right. left. exists (n1 + n2).
+        cbn [state.inputs state.height state.queue state.env] in *.
+        exists e2, x.
+        split; [|split; [|split]]; auto.
+        * apply expr.all_up_to_height_mod_sanity in Get2.
+          omega.
+        * now rewrite run_plus, Run1.
+      + right. right. exists (n1 + n2), e2.
+        now rewrite run_plus, Run1.
+  Qed.
+
+  Lemma finish_these_inputs :
+    forall l e,
+      (forall x, P x e) ->
+      (exists n e' x, expr.height e' <= expr.height e /\
+                 Forall (fun x => P x e') l /\
+                 ~ P x e' /\
+                 run n (state.init l) = inl (state.init (x :: l))) \/
+      (exists n e', run n (state.init l) = inr e').
+  Proof.
+    intros l e F.
+    destruct (all_heights l (expr.height e)) as [[n1 Run1]|[[n1 [e1 [x [He1 [F1 [NP1 Run1]]]]]]|[n1 [e1 Run1]]]];
+      eauto 10.
+    match goal with
+    | [ H : run _ _ = inl ?s |- _ ] =>
+      destruct (finish_this_height s) as [[n2 Run2]|[[n2 [k [e2 [x [Get2 [F2 [NP2 Run2]]]]]]]|[n2 [e2 Run2]]]]
+    end.
+    - simpl in *.
+      exfalso.
+      apply run_inl in Run2; [|now eauto using run_inl, init_inv].
+      rename Run2 into Inv2. clear Run1.
+      destruct Inv2 as [GetQ [Env Done]].
+      cbn [state.inputs state.height state.queue state.env] in *.
+      destruct (Done e ltac:(omega)) as [[]|[]].
+      intuition.
+    - simpl in *.
+      left.
+      exists (n1 + n2), e2, x.
+      split; [|split; [|split]]; auto.
+      + eauto using expr.all_up_to_height_mod_sanity.
+      + now rewrite run_plus, Run1.
+    - right.
+      exists (n1 + n2), e2.
+      now rewrite run_plus, Run1.
+  Qed.
+
+  Lemma check_inputs_cons :
+    forall e l x,
+      check_inputs (x :: l) e = true ->
+      check_inputs l e = true.
+  Proof.
+    simpl.
+    intros e l x H.
+    apply Bool.andb_true_iff in H.
+    intuition.
   Qed.
 
   Theorem completeness :
     (exists e, forall x, P x e) ->
     exists n e,
-      run n state.init = inr e /\
+      run n (state.init []) = inr e /\
       (forall x, P x e).
   Proof.
-    intros [ewit Hewit].
+    assert (
+    forall e,
+      (forall x, P x e) ->
+      forall n l,
+      List.length (List.filter (check_inputs l) (expr.all_up_to_height (expr.height e))) <= n ->
+      exists n1 e1,
+        run n1 (state.init l) = inr e1
+      ) as completeness'.
+    {
+      intros e He.
+      induction n; intros l Length.
+      - exfalso.
+        apply le_n_0_eq in Length.
+        symmetry in Length.
+        apply length_zero_iff_nil in Length.
+        assert (In e (filter (check_inputs l) (expr.all_up_to_height (expr.height e)))) as I.
+        {
+          apply filter_In.
+          split; [now apply expr.all_up_to_height_complete|].
+          pose proof check_inputs_ok e l as HCI.
+          destruct check_inputs; auto.
+          apply Exists_exists in HCI.
+          destruct HCI.
+          intuition.
+        }
 
-    destruct (all_heights (expr.height ewit)) as [n [[l Run]|[e Run]]].
-    - match goal with
-      | [ H : run _ _ = inl ?ms |- _ ] =>
-        set (s := ms) in *;
-        destruct (finish_this_height s) as [n2 [[l2 Run2]|[e Run2]]]
-      end.
-      + match goal with
-        | [ H : run _ _ = inl ?ms |- _ ] =>
-          set (s2 := ms) in *
-        end.
-        assert (inv s2) as Inv2 by eauto using run_inl, init_inv.
-        unfold inv in Inv2.
-        subst s2 s. simpl in *.
-        specialize (Inv2 ewit ltac:(omega)).
-        firstorder.
-      + exists (n + n2), e.
-        rewrite run_plus, Run, Run2.
-        split; eauto using run_inr, run_inl, init_inv.
-    - exists n, e.
-        split; eauto using run_inr, init_inv.
+        rewrite Length in I.
+        intuition.
+      - destruct (finish_these_inputs l e) as [[n1 [e1 [x [LE [F [NP Run1]]]]]]| [n1 [e1 Run1]]];
+          [now auto| |now eauto using run_inr, init_inv].
+        specialize (IHn (x :: l)).
+        destruct IHn as [n2 [e2 Run2]].
+        {
+          apply lt_n_Sm_le.
+          eapply lt_le_trans; [|apply Length].
+          apply filter_length_monotonic_lt with (x := e1).
+          - eauto using check_inputs_cons.
+          - simpl; destruct (P_dec_ok x e1); simpl; intuition.
+          - pose proof check_inputs_ok e1 l.
+            destruct check_inputs; auto.
+            rewrite Forall_forall in F.
+            rewrite Exists_exists in H.
+            destruct H. intuition.
+          - auto using expr.all_up_to_height_complete.
+        }
+        exists (n1 + n2), e2.
+        now rewrite run_plus, Run1, Run2.
+    }
+    intros [ewit Hwit].
+    destruct (completeness' ewit Hwit _ [] (le_n _)) as [n [e Run]].
+    exists n, e.
+    split; eauto using run_inr, init_inv.
   Qed.
 End cozy.
+
+Print Assumptions completeness.
