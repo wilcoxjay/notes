@@ -240,6 +240,9 @@ Module sortedmap.
       - apply maximum_key_None in E. subst. auto.
     Qed.
 
+    Definition keys' V (m : t' V) : list K :=
+      List.map fst m.
+
     Definition values' V (m : t' V) : list V :=
       List.map snd m.
 
@@ -361,6 +364,9 @@ Module sortedmap.
     Definition fresh V (m : t V) : K :=
       fresh' (proj1_sig m).
 
+    Definition keys V (m : t V) : list K :=
+      keys' (proj1_sig m).
+
     Definition values V (m : t V) : list V :=
       values' (proj1_sig m).
 
@@ -373,16 +379,16 @@ Module sortedmap.
     Proof.
       induction m; simpl; intros.
       - decide (k < k).
-        + exfalso. eapply StrictOrder_Irreflexive; eauto. 
+        + exfalso. eapply StrictOrder_Irreflexive; eauto.
         + destruct equiv_dec; congruence.
       - destruct a as [k' v'].
         decide (k < k').
         + simpl. decide (k < k).
-          * exfalso. eapply StrictOrder_Irreflexive; eauto. 
+          * exfalso. eapply StrictOrder_Irreflexive; eauto.
           * destruct equiv_dec; congruence.
         + destruct equiv_dec.
           * simpl. decide (k < k).
-            -- exfalso. eapply StrictOrder_Irreflexive; eauto. 
+            -- exfalso. eapply StrictOrder_Irreflexive; eauto.
             -- destruct equiv_dec; congruence.
           * simpl. decide (k < k'); try congruence.
             destruct equiv_dec; congruence.
@@ -438,7 +444,7 @@ Module sortedmap.
       destruct m; simpl; intros.
       - auto.
       - destruct p as [k' v'].
-        invc H. 
+        invc H.
         compute in H1.
         decide (k < k'); congruence.
     Qed.
@@ -516,11 +522,11 @@ Module sortedmap.
       - auto.
       - destruct p as [k v]. specialize (E k). simpl in *.
         decide (k < k).
-        + exfalso. eapply StrictOrder_Irreflexive; eauto. 
+        + exfalso. eapply StrictOrder_Irreflexive; eauto.
         + destruct equiv_dec; congruence.
       - destruct a as [k v]. specialize (E k). simpl in *.
         decide (k < k).
-        + exfalso. eapply StrictOrder_Irreflexive; eauto. 
+        + exfalso. eapply StrictOrder_Irreflexive; eauto.
         + destruct equiv_dec; congruence.
       - apply Sorted_inv in S0.
         destruct S0 as [S0 Hd0].
@@ -547,7 +553,7 @@ Module sortedmap.
             destruct (equiv_dec k0 k0); try congruence.
             decide (k0 < k); try congruence.
         }
-        invc H. 
+        invc H.
         f_equal.
         apply IHS; auto.
         intros k1.
@@ -559,6 +565,62 @@ Module sortedmap.
           * assert (k0 = k1) by congruence. subst k1.
             now erewrite !get'_hdrel by eauto.
           * auto.
+    Qed.
+
+    Lemma in_keys_intro' :
+      forall V k v (m : t' V),
+        get' k m = Some v ->
+        In k (keys' m).
+    Proof.
+      induction m as [|[k1 v1]]; simpl; intros Get.
+      - discriminate.
+      - decide (k < k1).
+        + discriminate.
+        + destruct equiv_dec; [|now auto].
+          unfold equiv in *.
+          subst.
+          auto.
+    Qed.
+
+    Lemma in_keys_intro :
+      forall V k v (m : t V),
+        get k m = Some v ->
+        In k (keys m).
+    Proof.
+      unfold get, keys.
+      eauto using in_keys_intro'.
+    Qed.
+
+    Lemma in_keys_elim' :
+      forall V k (m : t' V),
+        Sorted tuple_lt m ->
+        In k (keys' m) ->
+        exists v,
+          get' k m = Some v.
+    Proof.
+      induction m as [|[k1 v1]]; simpl; intros Sorted I; intuition.
+      - subst. simpl in *.
+        decide (k < k).
+        + exfalso. eapply StrictOrder_Irreflexive; eauto.
+        + destruct equiv_dec; [now eauto|congruence].
+      - inversion Sorted; subst; clear Sorted.
+        specialize (IHm ltac:(assumption) ltac:(assumption)).
+        destruct IHm as [v Get].
+        decide (k < k1).
+        + now erewrite get'_hdrel in Get by eauto using HdRel_trans.
+        + now destruct equiv_dec; eauto.
+    Qed.
+
+    Lemma in_keys_elim :
+      forall V k (m : t V),
+        In k (keys m) ->
+        exists v,
+          get k m = Some v.
+    Proof.
+      unfold keys, get.
+      intros V k m I.
+      apply in_keys_elim'; auto.
+      apply proj2_sig.
     Qed.
 
     Lemma in_values_intro' :
@@ -573,7 +635,6 @@ Module sortedmap.
         + left. congruence.
         + auto.
     Qed.
-
 
     Lemma in_values_intro :
       forall V k (v : V) (m : t V),
