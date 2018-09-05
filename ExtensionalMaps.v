@@ -567,6 +567,19 @@ Module sortedmap.
           * auto.
     Qed.
 
+    Lemma keys_empty' :
+      forall V,
+        keys' (empty' V) = [].
+    Proof. auto. Qed.
+
+    Lemma keys_empty :
+      forall V,
+        keys (empty V) = [].
+    Proof.
+      unfold keys, empty.
+      apply keys_empty'.
+    Qed.
+
     Lemma in_keys_intro' :
       forall V k v (m : t' V),
         get' k m = Some v ->
