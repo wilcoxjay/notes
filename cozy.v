@@ -1485,60 +1485,60 @@ Section cozy.
     intuition.
   Qed.
 
+  Lemma completeness' :
+    forall e,
+      (forall x, P x e) ->
+      forall n l,
+      List.length (List.filter (check_inputs l) (expr.all_up_to_height (expr.height e))) <= n ->
+      exists n1 e1,
+        run n1 (state.init l) = inr e1.
+  Proof.
+    intros e He.
+    induction n; intros l Length.
+    - exfalso.
+      apply le_n_0_eq in Length.
+      symmetry in Length.
+      apply length_zero_iff_nil in Length.
+      assert (In e (filter (check_inputs l) (expr.all_up_to_height (expr.height e)))) as I.
+      {
+        apply filter_In.
+        split; [now apply expr.all_up_to_height_complete|].
+        pose proof check_inputs_ok e l as HCI.
+        destruct check_inputs; auto.
+        apply Exists_exists in HCI.
+        destruct HCI.
+        intuition.
+      }
+
+      rewrite Length in I.
+      intuition.
+    - destruct (finish_these_inputs l e) as [[n1 [e1 [x [LE [F [NP Run1]]]]]]| [n1 [e1 Run1]]];
+        [now auto| |now eauto using run_inr, init_inv].
+      specialize (IHn (x :: l)).
+      destruct IHn as [n2 [e2 Run2]].
+      {
+        apply lt_n_Sm_le.
+        eapply lt_le_trans; [|apply Length].
+        apply filter_length_monotonic_lt with (x := e1).
+        - eauto using check_inputs_cons.
+        - simpl; destruct (P_dec_ok x e1); simpl; intuition.
+        - pose proof check_inputs_ok e1 l.
+          destruct check_inputs; auto.
+          rewrite Forall_forall in F.
+          rewrite Exists_exists in H.
+          destruct H. intuition.
+        - auto using expr.all_up_to_height_complete.
+      }
+      exists (n1 + n2), e2.
+      now rewrite run_plus, Run1, Run2.
+  Qed.
+
   Theorem completeness :
     (exists e, forall x, P x e) ->
     exists n e,
       run n (state.init []) = inr e /\
       (forall x, P x e).
   Proof.
-    assert (
-    forall e,
-      (forall x, P x e) ->
-      forall n l,
-      List.length (List.filter (check_inputs l) (expr.all_up_to_height (expr.height e))) <= n ->
-      exists n1 e1,
-        run n1 (state.init l) = inr e1
-      ) as completeness'.
-    {
-      intros e He.
-      induction n; intros l Length.
-      - exfalso.
-        apply le_n_0_eq in Length.
-        symmetry in Length.
-        apply length_zero_iff_nil in Length.
-        assert (In e (filter (check_inputs l) (expr.all_up_to_height (expr.height e)))) as I.
-        {
-          apply filter_In.
-          split; [now apply expr.all_up_to_height_complete|].
-          pose proof check_inputs_ok e l as HCI.
-          destruct check_inputs; auto.
-          apply Exists_exists in HCI.
-          destruct HCI.
-          intuition.
-        }
-
-        rewrite Length in I.
-        intuition.
-      - destruct (finish_these_inputs l e) as [[n1 [e1 [x [LE [F [NP Run1]]]]]]| [n1 [e1 Run1]]];
-          [now auto| |now eauto using run_inr, init_inv].
-        specialize (IHn (x :: l)).
-        destruct IHn as [n2 [e2 Run2]].
-        {
-          apply lt_n_Sm_le.
-          eapply lt_le_trans; [|apply Length].
-          apply filter_length_monotonic_lt with (x := e1).
-          - eauto using check_inputs_cons.
-          - simpl; destruct (P_dec_ok x e1); simpl; intuition.
-          - pose proof check_inputs_ok e1 l.
-            destruct check_inputs; auto.
-            rewrite Forall_forall in F.
-            rewrite Exists_exists in H.
-            destruct H. intuition.
-          - auto using expr.all_up_to_height_complete.
-        }
-        exists (n1 + n2), e2.
-        now rewrite run_plus, Run1, Run2.
-    }
     intros [ewit Hwit].
     destruct (completeness' ewit Hwit _ [] (le_n _)) as [n [e Run]].
     exists n, e.
