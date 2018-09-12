@@ -1,3 +1,89 @@
+(**
+
+# Verified Synthesis
+
+- verification people love soundness
+- but completeness is kinda the soundness of synthesis
+  - soundness I guess would be "when we return an answer, it's a valid solution"
+  - completeness: if there is a solution, we will eventually find it
+    (usually, if there isn't a solution, we might not terminate)
+
+- set up basic toy language
+
+    e ::= zero | one | var | plus e e
+
+  the semantics of this programming language are given by
+
+  eval : nat -> expr -> nat
+  eval x zero = 0
+  eval x one = 1
+  eval x var = x
+  eval x (plus e1 e2) = eval x e1 + eval x e2
+
+- synthesis problem:
+  - given a specification P : nat -> expr -> Prop (that satisfies some conditions to be given later)
+  - find an expression such that `forall x, P x e`
+
+- so far, P is completely arbitrary, but not all P make sense
+- first, P should be *semantic*, not syntactic
+
+    P_ext : forall x e1 e2, eval x e1 = eval x e2 -> (P x e1 <-> P x e2)
+
+  another way to say this would be to make P : nat -> nat -> Prop and then use
+  `P x (eval x e)`. this actually might be better, because it makes it clear that
+  the specification specifies the *behavior* of the program, not its implementation per se.
+
+- note that P could be nondeterministic, in that it allows multiple behaviors for a given x
+
+- without further information about P, there's nowhere to start synthesis, so we need a few additional
+  assumptions.  first, we assuem an oracle that can check whether an expression satisifies
+  P on all inputs.
+
+      P_oracle : forall e, {x : nat | ~ P x e} + {forall x, P x e}
+
+  this either finds a counterexample x where e doesn't satisfy P.
+
+  such an oracle immediately gives a semidecision procedure: just enumerate all expressions
+  and pass them to the oracle. if there is a solution, this strategy is guaranteed to find it.
+  (if there's no solution, it will just go on forever enumerating all expressions and checking them.)
+
+  this strategy is sound (an expression returned is guaranteed to be a valid solution) because
+  it only returns expressions that the oracle says are good, and we are assuming the oracle is sound.
+  the strategy is also complete, because if there is a solution, it will eventually be reached by the
+  enumeration, at which point the oracle will say yes.
+
+  we can improve on this strategy in two ways. first, whenever the oracle says "no", we'll remember
+  the counterexample x, so that we can check our future guesses and not make the same mistake again.
+  to do so, we need to assume that `P` is checkable at each input
+
+      P_dec : forall x e, {P x e} + {~ P x e}
+
+  using `P_dec`, we can check our guesses against all counterexamples the oracle has ever given us.
+  generally, we expect checking a guess against all such counterexamples to be faster than calling
+  the oracle (in practice, `P_dec` amounts to a call to `eval`, while `P_oracle` typically involves
+  an SMT solver).
+
+  the final trick in syntactic enumerative CEGIS in to use the list of counterexamples to prune
+  the enumeration. since we're checking all our guesses against the list of counterexamples,
+  we're only really interested in finding the smallest expression which satisfies `P` on all the inputs
+  we've seen so far.
+  thus, it suffices to consider expressions equivalent if their behavior agrees on all these inputs.
+  this can *vastly* cut down on the search space. for example, in our toy language there are
+  21612 syntactically distinct expressions of height <= 4, but only 45 of them are semantically distinct.
+
+  CEGIS enumerates semantically distinct expressions by iteratively deepening a set of
+  known-distinct expressions. at each step, it explores all expressions whose children
+  are in the known set, and adds any semantically new expressions to the set.
+
+- now, completeness gets a little bit interesting, because *not every expression is passed to the oracle*
+
+- high level strategy: Syntactic enumerative CEGIS [Sketch 06, Transit 13, Sygus 13]
+  - enumerate all expressions in order of increasing height, and check each one
+
+
+
+*)
+
 Require Import List Omega Relations ExtensionalMaps RelationClasses DecidableClass EquivDec TotalOrder.
 Import ListNotations.
 
@@ -1090,6 +1176,10 @@ Proof.
 Qed.
 
 End expr.
+
+Eval lazy in length (expr.all_up_to_height 4).
+Eval lazy in length (proj1_sig (expr.all_up_to_height_mod [0; 1] 4)).
+
 
 Module state.
   Record t := Make { height: nat; env: env.t expr.t; queue : list (list nat); inputs: list nat }.
