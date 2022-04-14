@@ -9,12 +9,6 @@ predicate method ge0(n: int) {
   downup_search(n, n)
 }
 
-function abs(n: int): int
-{
-  if n < 0 then -n else n
-}
-
-
 lemma downup_search_correct(down: int, up: int)
   requires down >= 0 || up <= 0
   decreases if down >= 0 then down else -up
